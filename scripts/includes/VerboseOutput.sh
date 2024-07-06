@@ -1,0 +1,13 @@
+#!INCLUDE_ONLY
+#//////////////////////////////////////////////////
+#//DESLinux Builder
+#//	(C)2014-2022 Dark Embedded Systems.
+#//	http://xprj.net/
+#//////////////////////////////////////////////////
+
+vinfo(){
+	info "${@}"
+}
+vinfoex(){
+	infoex "${@}"
+}

@@ -1,0 +1,441 @@
+#!/bin/echo E: Use DESLBuilder instead of
+
+# Always run as vroot with cleaned environemnt variable (But not in DESLBWorld)
+
+DESLB_Main(){
+	# DESLBuilderX marker
+	export DESL_BUILDER_X=1;
+	export PS1='DESLBuilder \$ \w>';
+
+	[ "${DESLB_NESTLV:--}" = '-' ] && DESLB_NESTLV=0;
+	export DESLB_NESTLV=$((DESLB_NESTLV+1));
+
+	# Includes (At this point, INCLUDES_DIR is not defined.)
+	. "${SCRIPTS_DIR}/ConfigManager.sh"
+	. "${SCRIPTS_DIR}/ArgsParser.sh"
+
+	# Startup
+	ParseArgs ${MAKEFLAGS} "${@}";
+
+	# Configuration
+	export DESLB_CONFIG_FILE=${ARGS_OPT_LONG_ConfigFile-"${ROOT_DIR}/.config"};
+	[ -e "${DESLB_CONFIG_FILE}" ] && {
+		ConfigLoad "${ROOT_DIR}/.config" > ${N}
+		for v in `ConfigListWithValue`; do
+			eval CONFIG_${v//:/_}
+		done
+	}
+
+	# Variables
+	ExportBootstrapArch;
+	GetTargetArch;
+	ExportDirsPath;
+	ExportByArgs;
+
+	# Enable verbose output (To reduce 'if')
+	[ ! "${DESL_OUTPUT_VERBOSE:-0}" = '0' ] && . "${INCLUDES_DIR}/VerboseOutput.sh"
+
+	[ ! "${ARGS_TARGET}" = "ExportEnv" ] && {
+		SetupToolchainSharedDir;
+	}
+
+	# Override BUILD_DIR if package is bootstrap/*
+	ChangeBuildDirIfPackageIsBootstrap;
+
+	# Verify 'Arch'
+	VerifyArch;
+
+	# Command
+	. "${INCLUDES_DIR}/DESLBuilder.sh"
+	RunCommand "${@}";
+	local R=${?};
+
+return ${R};
+}
+
+
+
+
+ExportBootstrapArch(){
+	local T1=${BUILDER_ARCH_ORG};
+	local T3=${BUILDER_ARCH_ORG_T3};
+
+	[ "${T1}" = '' ] && {
+		local ARCH=`${SCRIPTS_DIR}/config.guess`;
+		local T=${1}
+		local IFS=$'-';
+		set -- ${T:-${ARCH}}
+		T1=${1};
+		T3=${3};
+	}
+
+	export BOOTSTRAP_ARCH_BUILD_ORG=${T1};
+	export BOOTSTRAP_TARGET_ORG=${BOOTSTRAP_ARCH_BUILD_ORG}-desl_bootstrap-${T3};
+
+	[ "${T1}" = "x86_64" ] && [ "${ARGS_OPT_LONG_Skip_x86Test}" = '' ] && {
+		${SCRIPTS_DIR}/x86test && T1=i686;
+	}
+
+	export BOOTSTRAP_ARCH_BUILD=${T1};
+	export BOOTSTRAP_TARGET=${BOOTSTRAP_ARCH_BUILD}-desl_bootstrap-${T3};
+
+	export BOOTSTRAP_ARCH=${BOOTSTRAP_ARCH_BUILD};
+	case ${BOOTSTRAP_ARCH_BUILD} in
+		i686	) BOOTSTRAP_ARCH='x86';;
+		x86_64	) BOOTSTRAP_ARCH='x64';;
+	esac
+	return 0;
+}
+
+
+GetTargetArch(){
+	# Get 'DESL_ARCH'
+	export DESL_ARCH=${CONFIG_Target_Arch};
+
+	# Arch override by 'DESLB_ARCH' env. [1/2]
+	[ "${DESLB_ARCH:-BUILD}" != "BUILD" ] && DESL_ARCH="${DESLB_ARCH}";
+
+	# Arch override by '/Arch' option. [2/2]
+	[ "${ARGS_OPT_LONG_Arch}" != '' ] && {
+		DESL_ARCH="${ARGS_OPT_LONG_Arch}";
+	}
+
+	# Convert DESL_ARCH to internal format
+	export DESL_ARCH_BUILD=${DESL_ARCH};
+	case ${DESL_ARCH_BUILD} in
+		x86)	DESL_ARCH_BUILD='i686';;
+		x64)	DESL_ARCH_BUILD='x86_64';;
+		x86_*)	DESL_ARCH_BUILD="i686_${DESL_ARCH_BUILD#*_}";;
+		x64_*)	DESL_ARCH_BUILD="x86_64_${DESL_ARCH_BUILD#*_}";;
+	esac
+
+	# Sub arch instruction set support
+	export DESL_ARCH_BUILD_BASE='';
+	export DESL_ARCH_BUILD_SUB='';
+	case ${DESL_ARCH_BUILD} in
+		x86_64  )
+			DESL_ARCH_BUILD_SUB='';
+			DESL_ARCH_BUILD_BASE='x86_64';
+		;;
+		*_*)
+			DESL_ARCH_BUILD_SUB=${DESL_ARCH_BUILD##*_};
+			DESL_ARCH_BUILD_BASE=${DESL_ARCH_BUILD%_*};
+		;;
+		*)
+			DESL_ARCH_BUILD_SUB='';
+			DESL_ARCH_BUILD_BASE=${DESL_ARCH_BUILD};
+		;;
+	esac
+
+	# Generate 'DESL_TARGET' by 'DESL_ARCH'
+	ExportDESLTarget ${DESL_ARCH_BUILD};
+	export DESL_TARGET=${NEW_DESL_TARGET};
+
+	return 0;
+}
+
+ExportDESLTarget(){
+	local OFS=${IFS};
+	local IFS='-';
+	set -- ${*}
+
+	case "${*}" in
+		arm*	) NEW_DESL_TARGET=${1}-des-linux-gnueabi;;
+		*-*	) NEW_DESL_TARGET=${1}-des-linux_${2};;
+		*	) NEW_DESL_TARGET=${1}-des-linux;;
+	esac
+	return 0;
+}
+
+ExportDirsPath(){
+	export INCLUDES_DIR="${SCRIPTS_DIR}"/includes;
+
+	export BUILD_DIR="${BUILD_ROOT_DIR}/desl-${DESL_ARCH}";
+	export BUILD_DIR_BOOTSTRAP="${BUILD_ROOT_DIR}/bootstrap-${BOOTSTRAP_TARGET_ORG}";
+	export SHARED_SOURCE_ROOT_DIR="${BUILD_ROOT_DIR}/shared";
+
+	export BOOTSTRAP_DIR="${BOOTSTRAP_ROOT_PREFIX}-${BUILDER_ARCH}/${BOOTSTRAP_TARGET}";
+
+	export TOOLCHAIN_BASE_DIR="${TOOLCHAIN_ROOT_DIR}/build-${BOOTSTRAP_ARCH}";
+	export TOOLCHAIN_TOOLS_DIR="${TOOLCHAIN_BASE_DIR}/tools";
+	export TOOLCHAIN_DIR="${TOOLCHAIN_BASE_DIR}/desl-${DESL_ARCH}";
+
+	export TOOLCHAIN_USER_BASE_DIR="${TOOLCHAIN_ROOT_DIR}/usr";
+	export TOOLCHAIN_USR_DIR="${TOOLCHAIN_USER_BASE_DIR}/desl-${DESL_ARCH}";
+	export TOOLCHAIN_LOCAL_DIR="${TOOLCHAIN_USER_BASE_DIR}/local/desl-${DESL_ARCH}";
+
+	export CORE_ROOTFS_DIR="${BUILD_DIR}/rootfs/core";
+	export ROOTFS_DIR="${BUILD_DIR}/rootfs/desl";
+
+	export IMAGE_DIR="${IMAGE_ROOT_DIR}/${DESL_TARGET}";
+	export DLP_DIR="${IMAGE_DIR}/packages";
+
+	export IMAGE_BOOTSTRAP_DIR="${IMAGE_ROOT_DIR}/build-${BOOTSTRAP_ARCH}";
+	export DLP_BOOTSTRAP_DIR="${IMAGE_BOOTSTRAP_DIR}/packages";
+
+	export DLP_DEST_DIR="/tmp/dlp";
+	export DLP_INSTALL_DIR="${DLP_DEST_DIR}/usr";
+	export DLP_PREFIX_DIR="/usr";
+
+	# toolchain for Windows
+	export DES_W_TARGET="i686-desl-mingw32";
+	export BOOTSTRAP_W_DIR="${BOOTSTRAP_ROOT_DIR}-${BUILDER_ARCH}/${DES_W_TARGET}";
+
+
+	# Special Arch 'BUILD' for build tools.
+	[ "${ARGS_OPT_LONG_Arch}" = "BUILD" ] && {
+		ORG_BUILD_DIR="${BUILD_DIR}";
+
+		DESL_ARCH_BUILD="${BOOTSTRAP_ARCH_BUILD}";
+		DESL_ARCH="${BOOTSTRAP_ARCH}";
+		DESL_TARGET="${BOOTSTRAP_TARGET}";
+
+		IMAGE_DIR="${IMAGE_BOOTSTRAP_DIR}";
+		DLP_DIR="${DLP_BOOTSTRAP_DIR}";
+		BUILD_DIR="${BUILD_DIR_BOOTSTRAP}";
+		TOOLCHAIN_DIR="${BOOTSTRAP_DIR}";
+		TOOLCHAIN_USR_DIR="${BOOTSTRAP_DIR}/usr";
+		TOOLCHAIN_LOCAL_DIR="${BOOTSTRAP_DIR}/usr/local";
+
+		local T="/tmp/deslb";
+		CORE_ROOTFS_DIR=${T};
+		ROOTFS_DIR=${T};
+
+		SKIP_PREREQ=1;
+		DESL_FORCE_STATIC=1; # Current version of bootstrap can generate only static. So nothing to do required.
+		DESL_INTERNAL_TOOLS=1;
+	}
+
+	return 0;
+}
+
+ExportByArgs(){
+	export DESL_BUILD_PACKAGE=${ARGS_OPT_LONG_Package};
+	export PACKAGE_ROOT_CATEGORY="${DESL_BUILD_PACKAGE%%/*}";
+	export MAKE_OPT="${ARGS_OPT_N_j:+-j${ARGS_OPT_N_j}}";
+
+	export DESL_OUTPUT_VERBOSE=0;
+	export DESL_FORCE_STATIC=${DESL_FORCE_STATIC:-0};
+	export DESL_INTERNAL_TOOLS=${DESL_INTERNAL_TOOLS:-0};
+
+
+	[ ! "${ARGS_OPT_SHORT_v}${VAL_v}${VAL_V}" = '' ] && ARGS_OPT_LONG_v=1;
+	[ ! "${ARGS_OPT_LONG_vv}" = '' ] && ARGS_OPT_LONG_v=2;
+
+	case "${ARGS_OPT_LONG_v}" in
+		'' ) ;;
+		[1-2] ) DESL_OUTPUT_VERBOSE=$((ARGS_OPT_LONG_v));;
+		* ) DESL_OUTPUT_VERBOSE=1;;
+	esac
+
+	[ ! "${ARGS_OPT_LONG_Static}" = '' ] && DESL_FORCE_STATIC=1;
+
+	[ "${ARGS_OPT_LONG_help}" = "-" ] && ARGS_TARGET=help;
+	[ "${ARGS_OPT_LONG_h}" = "-" ] && ARGS_TARGET=help;
+	[ "${ARGS_OPT_SHORT_h}" = "-" ] && ARGS_TARGET=help;
+
+	# /M: option to override mode
+	[ ! "${ARGS_OPT_LONG_M}" = '' ] && ARGS_TARGET=${ARGS_OPT_LONG_M:1};
+
+	return 0;
+}
+
+SetupToolchainSharedDir(){
+	[ "${DESL_TEST_PACKAGE}" = '1' ] && {
+		# Block inheritance to child DESLBuilder.
+		export DESL_TEST_PACKAGE=0;
+
+		warning "------------------------------------------------------------"
+		warning "Package test mode is enabled."
+		warning "'export DESL_TEST_PACKAGE=0' to disable if you do not need."
+		warning "------------------------------------------------------------"
+		warning "Initializing dlpm shared directory."
+		rm -rf "${TOOLCHAIN_USER_BASE_DIR}"
+		rm -rf "${TOOLCHAIN_TOOLS_DIR}"
+		rm -rf "${BOOTSTRAP_DIR}/usr"
+	}
+
+	mkdir -p "${TOOLCHAIN_TOOLS_DIR}/bin"
+	mkdir -p "${TOOLCHAIN_USR_DIR}"
+	mkdir -p "${TOOLCHAIN_LOCAL_DIR}"
+
+	[ -e "${TOOLCHAIN_DIR}" ] && {
+		[ ! -e "${TOOLCHAIN_DIR}/usr" ] && ln -s  "../../usr/${DESL_TARGET}" "${TOOLCHAIN_DIR}/usr"
+		[ ! -e "${TOOLCHAIN_DIR}/usr/local" ] && ln -s  "../../usr/local/${DESL_TARGET}" "${TOOLCHAIN_DIR}/usr/local"
+	}
+
+	export PATH="${TOOLCHAIN_TOOLS_DIR}/bin:${PATH}";
+	return 0;
+}
+
+
+VerifyArch(){
+	local OFS=${IFS};
+	local IFS;
+	[ "${SKIP_ARCH_VERIFY}" != '' ] && {
+		return 0;
+	}
+
+	# If installed, always ok. (Including manually installed toolchain)
+	[ -e "${TOOLCHAIN_DIR}/desl_toolchain" ] && return 0;
+
+	# Full arch (Listed as 'Supported')
+	for a in `ConfigFileFormat "${SCRIPTS_DIR}/Arch.lst"`; do
+		[ "${DESL_ARCH}" = "${a}" ] && return 0;
+	done
+
+	# Sub arch  (Listed as 'Supported_Sub')
+	for a in `ConfigFileFormat "${SCRIPTS_DIR}/Arch.lst"`; do
+		IFS=$'=';
+		set -- ${a}
+		[ "${DESL_ARCH}" = "${1}" ] && {
+			error "Sub platform '${DESL_ARCH}' is not installed."
+			error "Use '/Add-SubArch' command to manage sub platforms."
+			exit 1;
+		}
+	done
+
+	error "Unknown platform '${DESL_ARCH}' specified."
+	error "SKIP_ARCH_VERIFY=1 to skip this check."
+	error "Or add this platform to '${SCRIPTS_DIR}/Arch.lst' section '[User]'"
+	exit 1;
+}
+
+ChangeBuildDirIfPackageIsBootstrap(){
+	local IFS=$'/';
+	set -- ${DESL_BUILD_PACKAGE}
+	IFS=${OFS};
+
+	[ "${1}" = "bootstrap" ] && BUILD_DIR=${BUILD_DIR_BOOTSTRAP};
+}
+
+CheckPrerequisites(){
+	[ ! "${DESLB_SKIP_PREREQ}" = '' ] && return 0;
+	export DESLB_SKIP_PREREQ=1;
+
+	. ${INCLUDES_DIR}/CheckPrerequisites.sh
+	RunCheckPrerequisites;
+}
+
+RunCommand(){
+	case "${ARGS_TARGET}" in
+
+		# Standard options
+		'Build' | '' ) # Prepare,Config,Compile,Install
+			"${DESL_BUILDER}" "${@}" /M:/Prepare	|| return ${?};
+			"${DESL_BUILDER}" "${@}" /M:/Config	|| return ${?};
+			"${DESL_BUILDER}" "${@}" /M:/Compile	|| return ${?};
+			"${DESL_BUILDER}" "${@}" /M:/Install	|| return ${?};
+		;;
+
+		'Rebuild' ) # Clean, Build
+			[ ! "${ARGS_OPT_LONG_Full}" = '' ] && { # /Full: Remove, Build
+				"${DESL_BUILDER}" "${@}" /M:/Remove	|| return ${?};
+				"${DESL_BUILDER}" "${@}" /M:/Build	|| return ${?};
+			}
+
+			"${DESL_BUILDER}" "${@}" /M:/Clean	|| return ${?};
+			"${DESL_BUILDER}" "${@}" /M:/Build	|| return ${?};
+		;;
+
+		'SubArch' )
+			;;
+
+
+		# Advanced options
+		'Prepare' ) # Download, Extract
+			DESLB_NESTLV=$((DESLB_NESTLV-1));
+			"${DESL_BUILDER}" "${@}" /M:/Download	|| return ${?};
+			"${DESL_BUILDER}" "${@}" /M:/Extract	|| return ${?};
+		;;
+
+
+		'Config' ) # has sub menu: Menu (menuconfig), Default (defconfig)
+			[ ! "${ARGS_OPT_LONG_Menu}" = '' ] && {
+				BuilderConfig 'menuconfig'
+				return ${?};
+			}
+			[ ! "${ARGS_OPT_LONG_Default}" = '' ] && {
+				BuilderConfig 'defconfig'
+				return ${?};
+			}
+			BuilderConfig '' || return ${?};
+		;;
+
+		'Compile' )
+			# CheckPrerequisites || return ${?};
+			BuilderCompile || return ${?};
+			;;
+
+		'Install' )
+			# CheckPrerequisites || return ${?};
+			BuilderInstall || return ${?};
+			;;
+
+
+
+		# Diagnostic options
+		'Uninstall' )
+			BuilderUninstall || return ${?};
+			;;
+
+		'Download' )
+			BuilderDownload || return ${?};
+			;;
+
+		'Extract' )
+			BuilderExtract || return ${?};
+			;;
+
+
+		'Clean' ) # has sub menu: Full ( = /Reset)
+			[ ! "${ARGS_OPT_LONG_Full}" = '' ] && {
+				"${DESL_BUILDER}" "${@}" /M:/Reset
+				return ${?};
+			}
+			BuilderClean;
+		;;
+
+		'Reset' )
+			;;
+
+		'Remove' )
+			BuilderRemove || return ${?};
+			;;
+
+
+		# Other options
+		'help' )
+			;;
+
+
+		# Developer options
+		'Show-Exports' )
+			. ${INCLUDES_DIR}/DESLBExports.sh
+			ShowExports;
+			;;
+
+		'Get-PackageInfo' )
+			. ${INCLUDES_DIR}/DESLBPackageReader.sh
+			PackageGetInfo;
+			;;
+
+		'Shell' )
+			[ ! "${ARGS_OPT_LONG_DisableFSV}" = '' ] && {
+				[ "${DESLB_DISABLE_FSV:-0}" = '0' ] && return 251;
+			}
+			infoex 'Entering DESLBuilder shell'
+			cd "${ROOT_DIR}"
+			sh
+			;;
+
+		* )
+			error "Unknown mode '${ARGS_TARGET}' specified."
+			warning 'You must specify the mode option in the first argument.'
+			return 127;
+			;;
+
+	esac
+
+return 0;
+};

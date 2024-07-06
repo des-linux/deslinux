@@ -1,0 +1,123 @@
+#!/bin/echo Run 'DESLBuilder' instead of
+# DES Linux Builder :: Setup Script Engine
+# 	Dark Embedded Systems
+# 	http://e.xprj.net/desl
+
+main(){
+	local BB_CDN_BASE='https://desl.download.xprj.org/busybox/';
+	local BB_SRC_BASE='https://busybox.net/downloads/';
+	local BB_BIN_BASE='https://busybox.net/downloads/binaries/1.31.0-defconfig-multiarch-musl/';
+
+	local BB_SRC_FILE='busybox-1.36.1';
+	local BB_SRC_EXT='tar.bz2';
+	local BB_BIN_FILE='busybox-';
+
+	mkdir -p "${DBSE_DIR}"
+	local SAVE_TO="${DBSE_DIR}/busybox";
+	build_se && return 0;
+	download_se && return 0;
+
+	return 127;
+}
+
+build_se(){
+	local BB_SRC_URL="${BB_SRC_BASE}/${BB_SRC_FILE}.${BB_SRC_EXT}";
+	local BB_SRC_LOCAL="${DL_CACHE_DIR}/${BB_SRC_FILE}.${BB_SRC_EXT}";
+
+	local BB_BUILD_DIR_BASE="${BUILD_ROOT_DIR}/builder-${BUILDER_ARCH}/";
+	local BB_BUILD_DIR="${BB_BUILD_DIR_BASE}/${BB_SRC_FILE}";
+
+	[ ! -e "${BB_SRC_LOCAL}" ] && {
+		echo 'I: Downloading busybox...'
+		mkdir -p "${DL_CACHE_DIR}"
+		wget -O "${BB_SRC_LOCAL}.dl" "${BB_SRC_URL}" || {
+			echo 'E: Failed to download busybox.'
+			echo 'E: Please download source archive manually.'
+			echo "E: from URL: ${BB_SRC_URL}"
+			echo "E: save to : ${BB_SRC_LOCAL}"
+			return 2;
+		}
+		mv "${BB_SRC_LOCAL}.dl" "${BB_SRC_LOCAL}" || return 2;
+	}
+
+	[ ! -e "${BB_BUILD_DIR}/Makefile" ] && {
+		echo 'I: Extracting source...'
+		mkdir -p "${BB_BUILD_DIR_BASE}"
+		tar x -C "${BB_BUILD_DIR_BASE}" -f "${BB_SRC_LOCAL}" || {
+			echo "E: Failed to extract source archive."
+			return 3;
+		}
+	}
+
+	[ ! -e "${BB_BUILD_DIR}/busybox" ] && {
+		echo 'I: Building...'
+		local ODIR="${PWD}";
+		cd "${BB_BUILD_DIR}"
+		cp "${ETC_DIR}/busybox_se.config" .config || {
+			echo "E: Failed to config."
+			return 4;
+		}
+		make -j4 || {
+			echo "E: Failed to build."
+			echo "E: Please install standard build tools for your system."
+			return 5;
+		}
+		cd "${ODIR}"
+	}
+
+	cp "${BB_BUILD_DIR}/busybox" "${SAVE_TO}" || {
+		echo "E: Failed to install busybox to '${SAVE_TO}'"
+		return 6;
+	}
+
+	install_se || return ${?};
+
+	return 0;
+}
+
+download_se(){
+	local BB_BIN_LOCAL="${DL_CACHE_DIR}/${BB_BIN_FILE}${BUILDER_ARCH_ORG}";
+	local BB_BIN_URL="${BB_BIN_BASE}/${BB_BIN_FILE}${BUILDER_ARCH_ORG}";
+
+	echo 'I: Downloading busybox pre-built binary...'
+
+	mkdir -p "${DL_CACHE_DIR}" || {
+		echo "E: Failed to create dir '${DL_CACHE_DIR}'"
+		return 2;
+	}
+
+	[ ! -e "${BB_BIN_LOCAL}" ] && {
+		wget -O "${BB_BIN_LOCAL}.dl" "${BB_BIN_URL}" || {
+			echo 'E: Failed to download busybox.'
+			echo 'E: Please download manually.'
+			echo "E: from URL: ${BB_BIN_URL}"
+			echo "E: save to : ${BB_BIN_LOCAL}"
+			return 2;
+		}
+		mv "${BB_BIN_LOCAL}.dl" "${BB_BIN_LOCAL}" || return 2;
+	}
+
+	cp "${BB_BIN_LOCAL}" "${SAVE_TO}" || {
+		echo "E: Failed to install busybox to '${SAVE_TO}'"
+		return 6;
+	}
+
+	chmod 755 "${SAVE_TO}" || {
+		echo "E: Failed to chmod busybox"
+		return 7;
+	}
+
+	install_se || return ${?};
+
+	return 0;
+}
+
+install_se(){
+	mkdir -p "${CORETOOLS_DIR}"
+	"${SAVE_TO}" mkdir -p "${CORETOOLS_DIR}"
+	for x in `"${SAVE_TO}" --list`; do
+		"${SAVE_TO}" ln -s "../busybox"  "${CORETOOLS_DIR}/${x}"
+	done
+}
+
+main "${@}";

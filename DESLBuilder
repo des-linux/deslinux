@@ -1,0 +1,314 @@
+#!/bin/sh
+
+DESLBuilder(){
+	# for Test
+	[ "${1}" = '/Exit-Immediately' ] && exit 0;
+
+	# Private: Core variables
+	local SELF="${BASH_SOURCE:-${DESLB_SELF_PATH:-${0}}}";
+	SELF=`readlink -f "${SELF}" || echo "${SELF}"`;
+	local sRoot="${SELF%/*}";
+
+	local sName="${SELF##*/}";
+	local OFS=${IFS};
+	local N='/dev/null';
+
+	SetEnvVariables;
+
+	[ "${DESLB_ENV_CHECKED:-0}" = '0' ] && {
+		CheckAndBuildScriptEngine;
+	}
+
+	# 1st: Run in unknown user shell
+	# If 'unshare' is not supported, exit.
+	[ "${DESLB_RUN_AS_ROOT:-0}" = '0' ] && {
+		ForceUnshare;
+		ExecAsVRoot "${@}";
+		exit ${?};
+	}
+
+	# 2nd: Run as vroot in DBSE, Shell extensions are always available
+	[ "${DESLB_HAS_SESSION:-0}" = '0' ] && {
+		StartInNewSession "${@}";
+		exit ${?};
+	}
+
+	# 3rd: Exec DESLBuilderX in DESLBWolld
+	[ "${DESLB_RUN_IN_WORLD:-0}" = '0' ] && {
+		RunDESLBuilderXInWorld "${@}";
+		exit ${?};
+	}
+
+	ExecDESLBuilderX "${@}";
+	exit ${?};
+}
+
+# Functions
+ExecAsVRoot(){
+	info 'Starting DESLBuilder as vroot...'
+
+	CheckRoot && {
+		CheckUnshare && {
+			warning 'We have detected that You are running this as the root user'
+			warning '	and current environment supports vroot.'
+			warning '	Please run this as a normal user.'
+		}
+		error 'If you understand all risks of building as root user,'
+		error '	set DESLB_RUN_AS_ROOT=1 (ALL DATAS WILL BE ERASED!)'
+		exit 1;
+	}
+
+	DESLB_RUN_AS_ROOT=1 DESLB_ENV_CHECKED=1 DESLB_SH="${CORETOOLS_DIR}/sh" exec "${CORETOOLS_DIR}/unshare" -Urm "${CORETOOLS_DIR}/sh" "${SELF}" "${@}"
+
+	# Never reach here when success
+	error 'Failed to start DESLBuilder as vroot'
+	exit 127;
+}
+
+StartInNewSession(){
+	GenerateSessionID;
+
+	mkdir -p "${DESLB_SESSION_DIR}" || {
+		error "Failed to create session directory: ${DESLB_SESSION_DIR}"
+		exit ${?};
+	}
+
+	DESLB_HAS_SESSION=1 "${CORETOOLS_DIR}/unshare" -Urm "${CORETOOLS_DIR}/sh" "${SELF}" "${@}"
+	local R=${?};
+
+	rmdir "${DESLB_SESSION_DIR}" || {
+		warning "Failed to remove session directory: ${DESLB_SESSION_DIR}"
+	}
+
+	return ${R};
+}
+
+BindToSessionDir(){ # from (to)
+	local F=${1};
+	local T=${2:-${F}};
+	mkdir -p "${DESLB_SESSION_DIR}/${T}" || return ${?};
+	mount -o rbind "${F}" "${DESLB_SESSION_DIR}/${T}" || return ${?};
+}
+
+PrepareDESLBWorld(){
+	mount -t tmpfs "tmp://DESLBuilder/session/${DESLB_SESSION_ID}" "${DESLB_SESSION_DIR}" || {
+		error 'Failed to mount tmpfs in session directory.'
+		return ${1};
+	}
+
+	mkdir -p "${DESLB_SESSION_DIR}/bin"
+	mkdir -p "${DESLB_SESSION_DIR}/etc"
+	mkdir -p "${DESLB_SESSION_DIR}/sbin"
+	mkdir -p "${DESLB_SESSION_DIR}/usr"
+	mkdir -p "${DESLB_SESSION_DIR}/lib"
+	mkdir -p "${DESLB_SESSION_DIR}/tmp"
+	mkdir -p "${DESLB_SESSION_DIR}/mnt"
+
+	BindToSessionDir /dev
+	BindToSessionDir /proc
+	BindToSessionDir /sys
+	BindToSessionDir "${ROOT_DIR}" /DESLBuilder
+
+	ln -s 'tmp' "${DESLB_SESSION_DIR}/var"
+
+	cp "${DBSE_DIR}/busybox" "${DESLB_SESSION_DIR}/bin/busybox"
+	ln -s 'busybox' "${DESLB_SESSION_DIR}/bin/sh"
+
+	chroot "${DESLB_SESSION_DIR}" /bin/busybox --install -s
+
+	cp "/etc/resolv.conf" "${DESLB_SESSION_DIR}/etc"
+	return 0;
+}
+
+RunDESLBuilderXInWorld(){
+	PrepareDESLBWorld || exit ${?};
+
+	ClearEnvVariables '/sbin:/bin';
+	SetEnvVariables;
+
+	DESLB_RUN_IN_WORLD=1 DESLB_SH=/bin/sh chroot "${DESLB_SESSION_DIR}" /DESLBuilder/DESLBuilder "${@}"
+	local R=${?};
+
+	# Request no fs virtualization
+	[ "${R}" = '251' ] && {
+		warning 'Restarting DESLBuilder without filesystem virtualization...'
+		mount -t tmpfs "tmp://DESLBuilder/session/${DESLB_SESSION_ID}" "/tmp" || {
+			error 'Failed to mount tmpfs in /tmp directory.'
+			return ${1};
+		}
+		PATH="${PATH_OLD}" DESLB_DISABLE_FSV=1 ExecDESLBuilderX "${@}";
+		R=${?};
+	}
+	return ${R};
+}
+
+ExecDESLBuilderX(){
+
+	[ "${DESL_BUILDER_X}" = '' ] && SHOW_RESULT_CODE=1;
+
+	. ${SCRIPTS_DIR}/DESLBuilderX
+	DESLB_Main "${@}"
+	local R=${?};
+	[ "${R}" = '251' ] && return ${R};
+
+	[ "${SHOW_RESULT_CODE}" = '1' ] && {
+		[ "${R}" = '0' ] && {
+			info "DESLBuilder exited with status code: ${R}"
+		} || {
+			error "DESLBuilder exited with status code: ${R}"
+		}
+	}
+
+	return ${R};
+}
+
+SetEnvVariables(){
+	# Public: Variables
+	export DESL_BUILDER="${SELF}";
+	export DESLB_SH="${DESLB_SH:-/bin/sh}";
+
+	LoadDirectorySettings;
+
+	# Public: Detect builder CPU arch
+	DetectBuilderArch;
+	SetDirectoryWithArch;
+
+}
+
+ClearEnvVariables(){
+	local NEWPATH="${1}";
+	local IFS=$'\n\r';
+
+	for e in `export -p`; do
+		IFS=' =';
+		set -- ${e}
+		case ${2} in
+			DESL_BUILDER | BUILDER_ARCH* | TERM | PWD) ;;
+			DESLB_*);;
+#			*_DIR);;
+			PATH ) PATH_OLD="${PATH}";;
+			*) export -n ${2}; unset ${2};;
+		esac
+	done
+
+	export PATH="${NEWPATH}";
+}
+
+LoadDirectorySettings(){
+	# in DESLBuilder v1, these values were changeable by DirectorySettings.lst
+	local BASE_DIR="${1:-${sRoot}}"
+	export ROOT_DIR="${BASE_DIR}/";
+
+	export PACKAGES_DIR="${ROOT_DIR}/packages";
+	export SCRIPTS_DIR="${ROOT_DIR}/scripts";
+	export DL_CACHE_DIR="${ROOT_DIR}/dl_cache";
+
+	export IMAGE_ROOT_DIR="${ROOT_DIR}/bin";
+	export BUILD_ROOT_DIR="${ROOT_DIR}/build";
+	export TOOLCHAIN_ROOT_DIR="${ROOT_DIR}/toolchain";
+	export BOOTSTRAP_ROOT_PREFIX="${ROOT_DIR}/toolchain/bootstrap";
+
+	export ETC_DIR="${SCRIPTS_DIR}/etc";
+
+	return 0;
+}
+
+GenerateSessionID(){
+	export DESLB_SESSION_ID="DESLB_${RANDOM}_${RANDOM}_${RANDOM}_${RANDOM}_${RANDOM}";
+	export DESLB_SESSION_DIR="${BUILD_ROOT_DIR}/session/${DESLB_SESSION_ID}";
+	return 0;
+}
+
+SetDirectoryWithArch(){
+	export BOOTSTRAP_DIR="${TOOLCHAIN_ROOT_DIR}/bootstrap-${BUILDER_ARCH}";
+
+	export DBSE_DIR="${BOOTSTRAP_ROOT_PREFIX}-${BUILDER_ARCH}/DBSE";
+	export CORETOOLS_DIR="${DBSE_DIR}/coretools";
+}
+
+CheckAndBuildScriptEngine(){
+	[ -e "${CORETOOLS_DIR}/sh" ] && return 0;
+
+	warning 'Building prerequisite: DESLBuilder Script Engine'
+	${DESLB_SH} "${SCRIPTS_DIR}/SetupScriptEngine" || {
+		error 'Failed to setup DESLBuilder Script Engine'
+		return 1;
+	}
+
+	return 0;
+}
+
+DetectBuilderArch(){
+	local T=${1};
+	[ "${T}" = '' ] && {
+		T=`${DESLB_SH} ${ETC_DIR}/config.guess`;
+	}
+	local OFS="${IFS}";
+	local IFS=$'-';
+	set -- ${T:-${ARCH}}
+	IFS="${OFS}";
+
+	local T1=${1};
+	local T3=${3};
+
+	[ "${T3}" = "" ] && {
+		export DESLB_FAILED_TO_DETECT_ARCH=1
+		warning 'DESLBuilder may not be supported by your shell or environment.'
+	}
+
+	export BUILDER_ARCH_ORG=${T1};
+	export BUILDER_ARCH_ORG_T3=${T3}; # Not used: DESLBuilder v2 or later can run under DESLinux only.
+	export BUILDER_ARCH=${T1};
+	case ${BUILDER_ARCH} in
+		i686	) BUILDER_ARCH='x86';;
+		x86_64	) BUILDER_ARCH='x64';;
+	esac
+
+	return 0;
+}
+
+ForceUnshare(){
+	CheckUnshare || {
+		error 'Your environment does not support root virtualization. It may be:'
+		error '	* Current kernel does not support namespace (CONFIG_USER_NS)'
+		error '	* Run this under 'chroot' environment.'
+		error '	* (Internal 'unshare' command does not support '-Urm' option.)'
+		error 'Please use DESLinux or other environments that supports it.'
+		exit 1;
+	}
+	return 0;
+}
+
+CheckUnshare(){
+	"${CORETOOLS_DIR}/unshare" -Urm "${CORETOOLS_DIR}/sh" "${SELF}" /Exit-Immediately
+	return ${R};
+}
+
+CheckRoot(){
+	local ID=`"${CORETOOLS_DIR}/id" -u`;
+	return ${ID};
+}
+
+error(){
+	echo -e "\e[31;1mE:\e[m\e[1m ${*}\e[m" >&2
+}
+warning(){
+	echo -e "\e[33;1mW:\e[m\e[1m ${*}\e[m" >&2
+}
+infoex(){
+	echo -e "\e[m\e[1mI:\e[m\e[1m ${*}\e[m"
+}
+info(){
+	echo -e "I: ${*}"
+}
+
+
+# Override by 'VerboseOutput.sh' when DESL_OUTPUT_VERBOSE != 0
+vinfo(){
+	:
+}
+vinfoex(){
+	:
+}
+
+DESLBuilder "${@}";

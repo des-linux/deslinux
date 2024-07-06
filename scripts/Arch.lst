@@ -1,0 +1,29 @@
+[Supported]
+//Supported platform.
+x64
+ia64
+arm
+arm64
+mips
+
+
+[Supported_Sub]
+//SubArch	= BaseArch, Extra gcc options
+
+x86		= x64, -m32
+
+//i'3'86 does not require extra features.
+i386		= x64, -m32 --with-arch=i386
+
+//i'6'86 requires MMX, SSE, SSE2 features.
+i686		= x64, -m32 --with-arch=i686
+
+mips-sf		= mips, -meb -msoft-float
+mipsel		= mips, -mel
+mipsel-sf	= mips, -mel -msoft-float
+arm-eabi	= arm,
+arm-oabi	= arm,
+arm-hf		= arm,
+
+
+[User]
