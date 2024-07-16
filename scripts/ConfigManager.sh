@@ -144,7 +144,7 @@ ConfigDeleteGroup(){ # (Namespace::)Group
 	return 0;
 }
 
-ConfigLoad(){ # Path (Namespace)
+ConfigLoad(){ # Path, (Namespace)
 	ConfigUnload ${2}
 	ConfigMerge "${@}"
 	return ${?};
@@ -429,6 +429,7 @@ ConfigKeyConvdb(){
 cat <<"EOF";
  	20
 !	21
+\$	24
 \*	2A
 +	2B
 ,	2C
@@ -497,6 +498,7 @@ ConfigEnv2KeyStrict(){ # ValNameToReturn, (Key)
 }
 
 ConfigKeyEncode(){ # ValNameToReturn, (Key)
+	local x;
 	[ "${1}" = '' ] && return 1;
 	eval local _KEY_ENC_=\${2:-\${${1}}};
 	local _VN_ENC_=${1};
@@ -512,6 +514,7 @@ ConfigKeyEncode(){ # ValNameToReturn, (Key)
 }
 
 ConfigKeyDecode(){ # ValNameToReturn, (Key)
+	local x;
 	[ "${1}" = '' ] && return 1;
 	eval local _KEY_DEC_=\${2:-\${${1}}};
 	local _VN_DEC_=${1};

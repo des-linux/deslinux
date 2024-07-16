@@ -32,6 +32,9 @@ DESLB_Main(){
 	ExportDirsPath;
 	ExportByArgs;
 
+	# Bootstrap tools
+	[ "${DESLB_DISABLE_FSV:-0}:${PACKAGE_ROOT_CATEGORY}" = '0:bootstrap' ] && return 251;
+
 	# Enable verbose output (To reduce 'if')
 	[ ! "${DESL_OUTPUT_VERBOSE:-0}" = '0' ] && . "${INCLUDES_DIR}/VerboseOutput.sh"
 
@@ -151,10 +154,10 @@ ExportDirsPath(){
 	export INCLUDES_DIR="${SCRIPTS_DIR}"/includes;
 
 	export BUILD_DIR="${BUILD_ROOT_DIR}/desl-${DESL_ARCH}";
-	export BUILD_DIR_BOOTSTRAP="${BUILD_ROOT_DIR}/bootstrap-${BOOTSTRAP_TARGET_ORG}";
+	export BUILD_DIR_BOOTSTRAP="${BUILD_ROOT_DIR}/builder-${BUILDER_ARCH}/bootstrap-${BOOTSTRAP_ARCH}";
 	export SHARED_SOURCE_ROOT_DIR="${BUILD_ROOT_DIR}/shared";
 
-	export BOOTSTRAP_DIR="${BOOTSTRAP_ROOT_PREFIX}-${BUILDER_ARCH}/${BOOTSTRAP_TARGET}";
+	export BOOTSTRAP_DIR="${BOOTSTRAP_ROOT_PREFIX}-${BUILDER_ARCH}/bootstrap-${BOOTSTRAP_ARCH}";
 
 	export TOOLCHAIN_BASE_DIR="${TOOLCHAIN_ROOT_DIR}/build-${BOOTSTRAP_ARCH}";
 	export TOOLCHAIN_TOOLS_DIR="${TOOLCHAIN_BASE_DIR}/tools";
@@ -210,6 +213,9 @@ ExportDirsPath(){
 }
 
 ExportByArgs(){
+	local nproc=`nproc`
+	nproc=$((nproc+2));
+	ARGS_OPT_N_j="${ARGS_OPT_N_j:-${nproc}}";
 	export DESL_BUILD_PACKAGE=${ARGS_OPT_LONG_Package};
 	export PACKAGE_ROOT_CATEGORY="${DESL_BUILD_PACKAGE%%/*}";
 	export MAKE_OPT="${ARGS_OPT_N_j:+-j${ARGS_OPT_N_j}}";
@@ -218,9 +224,10 @@ ExportByArgs(){
 	export DESL_FORCE_STATIC=${DESL_FORCE_STATIC:-0};
 	export DESL_INTERNAL_TOOLS=${DESL_INTERNAL_TOOLS:-0};
 
-
-	[ ! "${ARGS_OPT_SHORT_v}${VAL_v}${VAL_V}" = '' ] && ARGS_OPT_LONG_v=1;
-	[ ! "${ARGS_OPT_LONG_vv}" = '' ] && ARGS_OPT_LONG_v=2;
+	[ "${ARGS_OPT_LONG_v}" = '' ] && {
+		[ ! "${ARGS_OPT_SHORT_v}${VAL_v}${VAL_V}" = '' ] && ARGS_OPT_LONG_v=1;
+		[ ! "${ARGS_OPT_LONG_vv}" = '' ] && ARGS_OPT_LONG_v=2;
+	}
 
 	case "${ARGS_OPT_LONG_v}" in
 		'' ) ;;
@@ -264,7 +271,9 @@ SetupToolchainSharedDir(){
 		[ ! -e "${TOOLCHAIN_DIR}/usr/local" ] && ln -s  "../../usr/local/${DESL_TARGET}" "${TOOLCHAIN_DIR}/usr/local"
 	}
 
-	export PATH="${TOOLCHAIN_TOOLS_DIR}/bin:${PATH}";
+	[ ! "${PACKAGE_ROOT_CATEGORY}" = 'bootstrap' ] && {
+		export PATH="${TOOLCHAIN_TOOLS_DIR}/bin:${PATH}";
+	}
 	return 0;
 }
 

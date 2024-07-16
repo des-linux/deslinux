@@ -20,21 +20,14 @@ RunDESLBScript(){ # mode
 	local BUILD_MODE="${1}";
 
 	# Enable verbose output (To reduce 'if')
-	[ ! "${DESL_OUTPUT_VERBOSE:-0}" = '0' ] && . "${INCLUDES_DIR}/VerboseOutput.sh"
+	[ ! "${DESL_OUTPUT_VERBOSE:-0}" = '0' ] && . "${INCLUDES_DIR}/VerboseOutput_Build.sh"
 
 	PKG_FILE="${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def";
-	PackageLoad "${PKG_FILE}";
+	PackageLoad "${DESL_BUILD_PACKAGE}" "${PKG_FILE}" || return ${?};
 
 	# Load default script
 	. "${INCLUDES_DIR}/DESLBScript.sh"
 	. "${INCLUDES_DIR}/DESLBScriptHelper.sh"
-
-	# Protect shared directories from mistake operations
-	# SECURITY WARNING: This is not for security. 'umount "${ROOT_DIR}"' can unprotect it easily.
-	vinfo "Loading DESLBScript.sh"
-	ProtectDirectory "${ROOT_DIR}" || return ${?};
-	. "${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLBScript.sh"
-	UnprotectDirectory "${ROOT_DIR}"
 
 	# Make writable build directory
 	vinfo "Preparing build directory"
@@ -42,18 +35,14 @@ RunDESLBScript(){ # mode
 	export SHARED_BUILD_DIR="${SHARED_SOURCE_ROOT_DIR}/${Package_Source_RootDir}";
 	export CURRENT_PACKAGE_DIR="${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}";
 
-	PrepareBuildDirectory "${CURRENT_BUILD_DIR}" "${SHARED_BUILD_DIR}" || return ${?};
-	# ReserveWritableDirectory "${CURRENT_PACKAGE_DIR}"
-
-	vinfo "Protecting DESLBuilder"
-	ProtectDirectory "${ROOT_DIR}" || return ${?};
+	vinfo "Loading DESLBScript.sh"
+	. "${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLBScript.sh"
 
 	vinfo "Open build / package directory"
-	BindWritebleDirectory "${CURRENT_BUILD_DIR}" || return ${?};
-	# BindWritebleDirectory "${CURRENT_PACKAGE_DIR}" || return ${?};
+	PrepareBuildDirectory "${CURRENT_BUILD_DIR}" "${SHARED_BUILD_DIR}" || return ${?};
 
-	vinfo "Starting build process: ${BUILD_MODE}"
 	cd "${CURRENT_BUILD_DIR}"
+	vinfo "Starting build process: ${BUILD_MODE}"
 	case "${BUILD_MODE}" in
 		Config )
 			DESLBConfig || return ${?};
@@ -71,57 +60,31 @@ RunDESLBScript(){ # mode
 			;;
 	esac
 	return 0;
+
 }
 
-ProtectDirectory(){ # path
-	local BLANK_DIR="/tmp/.blank_dir_${RANDOM}_${RANDOM}";
-	mkdir -p "${BLANK_DIR}"
-	mount -t overlay "protect://${1}" "${1}" -o "ro,lowerdir=${1}:${BLANK_DIR}" || return ${?};
-	return 0;
-}
-
-UnprotectDirectory(){ # path
-	umount "${1}" || return ${?};
-	return 0;
-}
-
-ReserveWritableDirectory(){ # writedir, readdir
+PrepareBuildDirectory(){ # build_dir, shared_dir
 	local W_DIR="${1}";
 	local R_DIR="${2}";
+	mkdir -p "${W_DIR}"
 
-	local WRITABLE_BUILD_DIR="/tmp/build/${1}";
-	mkdir -p "${WRITABLE_BUILD_DIR}"
+	[ "${DESLB_SUPPORT_NATIVE_ISOLATION:-0}" = '1' ] && {
+		vinfo 'This package supports native isolation'
+		return 0;
+	}
 
 	[ "${R_DIR}" = '' ] && {
-		#mount -o bind "${W_DIR}" "${WRITABLE_BUILD_DIR}" || return ${?};
-		#return 0;
 		R_DIR="/tmp/.blank_dir_${RANDOM}_${RANDOM}";
 		mkdir -p "${R_DIR}"
 	}
 
-	local OV_WORK_DIR="${W_DIR}/temp";
+	local OV_WORK_DIR="${W_DIR}/tmp";
 	local OV_UPPER_DIR="${W_DIR}/build";
 	mkdir -p "${OV_WORK_DIR}"
 	mkdir -p "${OV_UPPER_DIR}"
 
-	mount -t overlay "build://${W_DIR}" "${WRITABLE_BUILD_DIR}" -o "rw,lowerdir=${R_DIR},upperdir=${OV_UPPER_DIR},workdir=${OV_WORK_DIR}" || return ${?};
+	mount -t overlay "build://${W_DIR}" "${W_DIR}" -o "rw,lowerdir=${R_DIR},upperdir=${OV_UPPER_DIR},workdir=${OV_WORK_DIR}" || return ${?};
 
-	return 0;
-}
-
-BindWritebleDirectory(){ #writedir
-	local WRITABLE_BUILD_DIR="/tmp/build/${1}";
-	mount -o bind "${WRITABLE_BUILD_DIR}" "${1}"
-}
-
-PrepareBuildDirectory(){ # build_dir, shared_dir
-	[ "${DESLB_SUPPORT_NATIVE_ISOLATION:-0}" = '1' ] && {
-		vinfo 'This package supports native isolation'
-		ReserveWritableDirectory "${1}"
-		return 0;
-	}
-
-	ReserveWritableDirectory "${1}" "${2}"
 	return 0;
 }
 
@@ -142,16 +105,16 @@ MakeDLP(){
 }
 
 error(){
-	echo -e "\e[31;1mE:\e[m\e[1m DESLBScript [${DESL_BUILD_PACKAGE}]: ${*}\e[m" >&2
+	echo -e "\e[31;1mE:\e[m\e[1m DESLBScript [${DESL_BUILD_PACKAGE}]: ${*}\e[m" >&4
 }
 warning(){
-	echo -e "\e[33;1mW:\e[m\e[1m DESLBScript [${DESL_BUILD_PACKAGE}]: ${*}\e[m" >&2
+	echo -e "\e[33;1mW:\e[m\e[1m DESLBScript [${DESL_BUILD_PACKAGE}]: ${*}\e[m" >&4
 }
 infoex(){
-	echo -e "\e[m\e[1mI:\e[m\e[1m DESLBScript [${DESL_BUILD_PACKAGE}]: ${*}\e[m"
+	echo -e "\e[m\e[1mI:\e[m\e[1m DESLBScript [${DESL_BUILD_PACKAGE}]: ${*}\e[m" >&3
 }
 info(){
-	echo -e "I: DESLBScript [${DESL_BUILD_PACKAGE}]: ${*}"
+	echo -e "I: DESLBScript [${DESL_BUILD_PACKAGE}]: ${*}" >&3
 }
 
 # Override by 'VerboseOutput.sh' when DESL_OUTPUT_VERBOSE != 0

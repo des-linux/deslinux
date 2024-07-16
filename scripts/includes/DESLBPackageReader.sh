@@ -1,9 +1,12 @@
-#!INCLUDE_ONLYhy
+#!INCLUDE_ONLY
 #//////////////////////////////////////////////////
 #//DESLinux Builder
 #//	(C)2014-2022 Dark Embedded Systems.
 #//	http://xprj.net/
 #//////////////////////////////////////////////////
+
+DESLBPACKAGEREADER_DESLPACKAGE='Name Version Revision';
+DESLBPACKAGEREADER_SOURCE='MakeDir SHA256 BaseURI FileExts FileName RootDir SaveTo';
 
 PackageInfo(){
 cat <<EOF
@@ -21,77 +24,100 @@ Package_Source_FileExts		Remote file name extensions of source
 Package_Source_RootDir		Root directory in source archive
 Package_Source_RootDir_RAW	Root directory in source archive (RAW)
 Package_Version			Package version
+Package_Source_MakeDir
+Package_Source_SHA256
+Package_Source_SaveTo
+Package_Source_SaveTo_RAW
 EOF
 }
 
-
-PackageSanitize(){ # VAL
-	# This is minimum, only intended use in DESLBuilder SSE
-	# It is also always build by a non root user
-
+PackageReplace(){ # VAL
+	local x;
 	local "K=${1}";
 	eval local V="\${${1}}";
 
-	V="${V/\(/[}";
-	V="${V/\)/]}";
-	V="${V/\`/\'}";
+	# [DESLPackage] section
+	# V="${V/$\{Name\}/${Package_Name}}";
+	# V="${V/$\{Version\}/${Package_Version}}";
+	# V="${V/$\{Revision\}/${Package_Revision}}";
+	for x in ${DESLBPACKAGEREADER_DESLPACKAGE}; do
+		eval V="\${V/\$\{${x}\}/\${Package_${x}}}";
+	done
 
-	eval ${K}=\"${V}\";
+	# V="${V/$\{FileExts\}/${Package_Source_FileExts}}";
+	for x in ${DESLBPACKAGEREADER_SOURCE}; do
+		eval V="\${V/\$\{${x}\}/\${Package_Source_${x}}}";
+	done
+
+	eval ${K}=\'${V}\';
 }
 
-PackageLoad(){
-
-	local PACKAGE_DEF_FILE="${1}";
+PackageLoad(){ # PackageID, PackageDef, [Prefix]
+	local PACKAGE_ID="${1}";
+	local PACKAGE_DEF_FILE="${2}";
+	local VAL_PREFIX="${3}";
+	local x R;
 
 	[ ! -e "${PACKAGE_DEF_FILE}" ] && {
 		error "Package '${PACKAGE_DEF_FILE}' is not  found."
 		return 1;
 	}
 
-	ConfigLoad "${PACKAGE_DEF_FILE}" DESLPackage > /dev/null
+	R=`PackageRead "${PACKAGE_ID}" "${PACKAGE_DEF_FILE}"` || return ${?};
 
-	Package_ID="${DESL_BUILD_PACKAGE%%/*}";
-	Package_Category="${DESL_BUILD_PACKAGE#*/}";
+	for x in ${R}; do
+		eval ${VAL_PREFIX:+${VAL_PREFIX}_}$x
+	done
+	return 0;
+}
 
+PackageRead(){ # PackageID, PackageDef
+	local PACKAGE_ID="${1}";
+	local PACKAGE_DEF_FILE="${2}";
+	local x;
+
+	[ ! -e "${PACKAGE_DEF_FILE}" ] && {
+		error "Package '${PACKAGE_DEF_FILE}' is not  found."
+		return 1;
+	}
+
+	ConfigLoad "${PACKAGE_DEF_FILE}" DESLPackage > /dev/null || return ${?};
+
+	# Core
+	Package_Category="${PACKAGE_ID%%/*}";
+	Package_ID="${PACKAGE_ID#*/}";
+
+	# [DESLPackage] section
 	ConfigGet Package_Name DESLPackage::DESLPackage:Name -
 	ConfigGet Package_Version DESLPackage::DESLPackage:Version 0
 	ConfigGet Package_Revision DESLPackage::DESLPackage:Revision 0
 
-	ConfigGet Package_Source_BaseURI_RAW DESLPackage::Source:BaseURI -
-	ConfigGet Package_Source_FileName_RAW DESLPackage::Source:FileName -
-	ConfigGet Package_Source_FileExts DESLPackage::Source:FileExts -
-	ConfigGet Package_Source_RootDir_RAW DESLPackage::Source:RootDir ''
-	ConfigGet Package_Source_SaveTo_RAW DESLPackage::Source:SaveTo ''
-	ConfigGet Package_Source_MakeDir DESLPackage::Source:MakeDir '0'
+	# [Source] section
+	for x in ${DESLBPACKAGEREADER_SOURCE}; do
+		ConfigGet Package_Source_${x} DESLPackage::Source:${x} ''
+		PackageReplace Package_Source_${x}
+	done
 
-	PackageSanitize Package_Source_BaseURI_RAW
-	PackageSanitize Package_Source_FileName_RAW
-	PackageSanitize Package_Source_RootDir_RAW
-	PackageSanitize Package_Source_SaveTo_RAW
-
-	eval Package_Source_BaseURI=\"${Package_Source_BaseURI_RAW}\"
-	eval Package_Source_FileName=\"${Package_Source_FileName_RAW}\"
-	eval Package_Source_RootDir=\"${Package_Source_RootDir_RAW}\"
-	eval Package_Source_SaveTo=\"${Package_Source_SaveTo_RAW}\"
-
+	# Generated
+	Package_ID_Full="${Package_Category}/${Package_ID}_${Package_Version}-${Package_Revision}";
 	Package_Source_File="${Package_Source_FileName}${Package_Source_FileExts}";
-
-	Package_Source_SaveTo="${Package_Source_SaveTo:-${Package_Source_File}}";
-
-	[ "${Package_Source_RootDir_RAW}" = '' ] && {
-		Package_Source_RootDir_RAW="${Package_Source_FileName}";
-		Package_Source_RootDir="${Package_Source_RootDir_RAW}";
+	[ "${Package_Source_RootDir}" = '' ] && {
+		Package_Source_RootDir="${Package_Source_FileName:-${PACKAGE_ID//\//_}}";
 	}
 
-	Package_ID_Full="${Package_Category}/${Package_Name}_${Package_Version}-${Package_Revision}";
+	for x in ${DESLBPACKAGEREADER_DESLPACKAGE}; do
+		eval echo "Package_${x}=\'\${Package_${x}}\'";
+	done
 
-	ConfigGet Package_Source_SHA256 DESLPackage::Source:SHA256 -
+	for x in ${DESLBPACKAGEREADER_SOURCE}; do
+		eval echo "Package_Source_${x}=\'\${Package_Source_${x}}\'";
+	done
 
 	return 0;
 }
 
 PackageGetInfo(){
-	PackageLoad "${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def";
+	PackageLoad "${DESL_BUILD_PACKAGE}" "${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def";
 
 	local IFS=$'\n\r';
 	local K V;

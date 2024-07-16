@@ -21,18 +21,31 @@ BuilderRunCommand(){
 	return 127;
 }
 
+BuilderRunScriptEx(){
+	case "${DESL_OUTPUT_VERBOSE:-0}" in
+		2 )
+			"${@}" 3>&1 4>&2
+			return ${?};
+			;;
+		* )
+			"${@}" 3>&1 4>&2 1>/dev/null 2>&1
+			return ${?};
+			;;
+	esac
+	return 127;
+}
+
 BuilderInitialize(){
 	infoex "[${DESLB_NESTLV}] ${DESL_BUILD_PACKAGE}"
 	PKG_FILE="${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def";
-	PackageLoad "${PKG_FILE}";
+	PackageLoad "${DESL_BUILD_PACKAGE}" "${PKG_FILE}";
 	return ${?};
 }
 
 BuilderRunScript(){
 	infoex "${DESL_BUILD_PACKAGE}"
-error old impl
-return 9
-	unshare -m "${DESLB_SH}" "${SCRIPTS_DIR}/ExecBuildScript" "${@}" || return ${?};
+
+	BuilderRunScriptEx unshare -m "${DESLB_SH}" "${SCRIPTS_DIR}/ExecBuildScript" "${@}" || return ${?};
 	return ${?};
 }
 

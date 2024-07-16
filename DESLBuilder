@@ -206,7 +206,7 @@ LoadDirectorySettings(){
 	export IMAGE_ROOT_DIR="${ROOT_DIR}/bin";
 	export BUILD_ROOT_DIR="${ROOT_DIR}/build";
 	export TOOLCHAIN_ROOT_DIR="${ROOT_DIR}/toolchain";
-	export BOOTSTRAP_ROOT_PREFIX="${ROOT_DIR}/toolchain/bootstrap";
+	export BOOTSTRAP_ROOT_PREFIX="${ROOT_DIR}/toolchain/build";
 
 	export ETC_DIR="${SCRIPTS_DIR}/etc";
 
@@ -220,7 +220,7 @@ GenerateSessionID(){
 }
 
 SetDirectoryWithArch(){
-	export BOOTSTRAP_DIR="${TOOLCHAIN_ROOT_DIR}/bootstrap-${BUILDER_ARCH}";
+	export BOOTSTRAP_DIR="${BOOTSTRAP_ROOT_PREFIX}-${BUILDER_ARCH}/bootstrap-${BUILDER_ARCH}";
 
 	export DBSE_DIR="${BOOTSTRAP_ROOT_PREFIX}-${BUILDER_ARCH}/DBSE";
 	export CORETOOLS_DIR="${DBSE_DIR}/coretools";
