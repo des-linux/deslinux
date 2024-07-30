@@ -20,7 +20,9 @@ Main(){
 			EnterSession DLPIInstall;
 			return ${?};;
 		Check ) ;;
-		Remove ) ;;
+		Remove | Uninstall )
+			EnterSession DLPIRemove;
+			return ${?};;
 		List) ;;
 		Extract )
 			EnterSession DLPIExtract;
@@ -50,16 +52,20 @@ EnterSession(){
 	return ${R};
 }
 
+# /List /Installed or /File:<DLP>
+# /Check /Installed or /File:
+
 DLPIInstall(){ # /Install /DLP:<DLP Path> [/Root:<DLP Root>] [/Force] [/IgnorePlatform] [/IgnoreSystem] [/IgnoreDepends] [/IgnoreConflict]
 	[ ! "${ARGS_OPT_LONG_DLP+1}" = '1' ] && {
 		DLPIUsage
 		return 1;
 	}
 
-	local ROOT_DIR="${ARGS_OPT_LONG_Root:-/usr}/.dlpi/";
-	local DLP_CONFIG="${ROOT_DIR}/dlp.conf";
+	local ROOT_DIR="${ARGS_OPT_LONG_Root:-/usr}/";
+	local DLPI_DIR="${ROOT_DIR}/.dlpi/";
+	local DLP_CONFIG="${DLPI_DIR}/dlp.conf";
 	[ ! -e "${DLP_CONFIG}" ] && {
-		error "Directory '${ARGS_OPT_LONG_Root:-/usr}' is not initialized with dlpi."
+		error "Directory '${ROOT_DIR}' is not initialized with dlpi."
 		return 1;
 	}
 
@@ -82,7 +88,7 @@ DLPIInstall(){ # /Install /DLP:<DLP Path> [/Root:<DLP Root>] [/Force] [/IgnorePl
 	ConfigGet BaseSystem_Pacakge 'DLPackage::DLPInstaller:System'
 
 
-	[ -e "${ROOT_DIR}/installed/${ID//\//_____}.dlpi" ] && {
+	[ -e "${DLPI_DIR}/installed/${ID//\//_____}.dlpi" ] && {
 		error "Package '${ID}' is already installed."
 		return 1;
 	}
@@ -105,22 +111,64 @@ DLPIInstall(){ # /Install /DLP:<DLP Path> [/Root:<DLP Root>] [/Force] [/IgnorePl
 		local Depends RuntimeDepends;
 		local Depends=`ConfigFileList "${TMPDIR}/DESLPackage.def" 'Depends'`;
 		local RuntimeDepends=`ConfigFileList "${TMPDIR}/DESLPackage.def" 'RuntimeDepends'`;
-		CheckDepends "${ROOT_DIR}" "${Depends} ${RuntimeDepends}" || return ${?};
+		CheckDepends "${DLPI_DIR}" "${Depends} ${RuntimeDepends}" || return ${?};
 	}
 
 	info 'Loading file list...'
 	local FILE_LIST=`DLPI_LIST_ONLY=1 DLPIExtract`;
 
 	info 'Installing...'
-	mkdir -p "${ROOT_DIR}/installed/" || return ${?};
-	cp "${TMPDIR}/DESLPackage.def" "${ROOT_DIR}/installed/session.dlpi"
-	echo '[Files]' >> "${ROOT_DIR}/installed/session.dlpi"
-	echo "${FILE_LIST}" >> "${ROOT_DIR}/installed/session.dlpi"
+	mkdir -p "${DLPI_DIR}/installed/" || return ${?};
+	cp "${TMPDIR}/DESLPackage.def" "${DLPI_DIR}/installed/session.dlpi"
+	echo '[Files]' >> "${DLPI_DIR}/installed/session.dlpi"
+	echo "${FILE_LIST}" >> "${DLPI_DIR}/installed/session.dlpi"
 
-	ARGS_OPT_LONG_Dir="${ARGS_OPT_LONG_Root:-/usr}" ARGS_OPT_LONG_Verbose=1 DLPIExtract || return ${?};
+	ARGS_OPT_LONG_Dir="${ROOT_DIR}" ARGS_OPT_LONG_Verbose=1 DLPIExtract || return ${?};
 
-	mv "${ROOT_DIR}/installed/session.dlpi" "${ROOT_DIR}/installed/${ID//\//_____}.dlpi" || return ${?};
+	mv "${DLPI_DIR}/installed/session.dlpi" "${DLPI_DIR}/installed/${ID//\//_____}.dlpi" || return ${?};
 
+	return 0;
+}
+
+DLPIRemove(){ # /Remove /ID:<DLP ID> [/Root:<DLP Root>]
+	[ ! "${ARGS_OPT_LONG_ID+1}" = '1' ] && {
+		DLPIUsage
+		return 1;
+	}
+
+	local ROOT_DIR="${ARGS_OPT_LONG_Root:-/usr}/";
+	local DLPI_DIR="${ROOT_DIR}/.dlpi/";
+	local DLP_CONFIG="${DLPI_DIR}/dlp.conf";
+	[ ! -e "${DLP_CONFIG}" ] && {
+		error "Directory '${ROOT_DIR}' is not initialized with dlpi."
+		return 1;
+	}
+
+	local ID="${ARGS_OPT_LONG_ID}";
+	local DLPI_FILE="${DLPI_DIR}/installed/${ID//\//_____}.dlpi";
+	[ ! -e "${DLPI_FILE}" ] && {
+		error "Package '${ID}' is not installed."
+		return 1;
+	}
+
+	local Files=`ConfigFileList "${DLPI_FILE}" 'Files'`;
+	local Dirs='';
+	local LR=$'\n';
+	local x;
+	for x in ${Files}; do
+		[ -d "${ROOT_DIR}/${x}" ] && {
+			Dirs="${x}${LR}${Dirs}";
+			continue;
+		}
+		rm -f "${ROOT_DIR}/${x}"
+	done
+
+	local IFS=$'\n\r';
+	for x in ${Dirs}; do
+		rmdir --ignore-fail-on-non-empty "${ROOT_DIR}/${x}"
+	done
+
+	rm "${DLPI_FILE}"
 	return 0;
 }
 
@@ -320,7 +368,7 @@ CheckDepends(){ # Depends ...
 	local IFS=$' ';
 	local x;
 	for x in ${D}; do
-		[ ! -e "${ROOT_DIR}/installed/${x//\//_____}.dlpi" ] && {
+		[ ! -e "${DLPI_DIR}/installed/${x//\//_____}.dlpi" ] && {
 			error "Dependency '${x}' is not insatalled."
 			R=1;
 		}
