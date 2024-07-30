@@ -51,6 +51,7 @@ Thumbs.db
 .DS_Store
 
 # This project
+/bin
 /build
 /dl_cache
 /packages
