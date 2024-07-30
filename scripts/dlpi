@@ -55,8 +55,8 @@ EnterSession(){
 # /List /Installed or /File:<DLP>
 # /Check /Installed or /File:
 
-DLPIInstall(){ # /Install /DLP:<DLP Path> [/Root:<DLP Root>] [/Force] [/IgnorePlatform] [/IgnoreSystem] [/IgnoreDepends] [/IgnoreConflict]
-	[ ! "${ARGS_OPT_LONG_DLP+1}" = '1' ] && {
+DLPIInstall(){ # /Install /File:<DLP Path> [/Root:<DLP Root>] [/Force] [/IgnorePlatform] [/IgnoreSystem] [/IgnoreDepends] [/IgnoreConflict]
+	[ ! "${ARGS_OPT_LONG_File+1}" = '1' ] && {
 		DLPIUsage
 		return 1;
 	}
@@ -69,8 +69,8 @@ DLPIInstall(){ # /Install /DLP:<DLP Path> [/Root:<DLP Root>] [/Force] [/IgnorePl
 		return 1;
 	}
 
-	[ ! -e "${ARGS_OPT_LONG_DLP}" ] && {
-		error "DLP '${ARGS_OPT_LONG_DLP}' not found."
+	[ ! -e "${ARGS_OPT_LONG_File}" ] && {
+		error "DLP '${ARGS_OPT_LONG_File}' not found."
 		return 1;
 	}
 
@@ -80,7 +80,7 @@ DLPIInstall(){ # /Install /DLP:<DLP Path> [/Root:<DLP Root>] [/Force] [/IgnorePl
 	ConfigGet BaseSystem_Root 'DLPConfig::DLP:System'
 
 	info 'Loading DLP...'
-	cpio -F "${ARGS_OPT_LONG_DLP}" -H newc -i --to-stdout DESLPackage.def > "${TMPDIR}/DESLPackage.def" 2>/dev/null || return ${?};
+	cpio -F "${ARGS_OPT_LONG_File}" -H newc -i --to-stdout DESLPackage.def > "${TMPDIR}/DESLPackage.def" 2>/dev/null || return ${?};
 	ConfigLoad "${TMPDIR}/DESLPackage.def" DLPackage > /dev/null || return ${?};
 	local ID Platform_Package BaseSystem_Pacakge;
 	ConfigGet ID 'DLPackage::DLPInstaller:ID'
@@ -198,20 +198,20 @@ DLPIInitialize(){ # /Initialize /Root:<DLP Root> /Platform:<Arch> [/System:<Syst
 	return 0;
 }
 
-DLPIExtract(){ # /Extract /DLP:<DLP Path> [/Dir:<Extract to>]  [/Verbose, /v] [/MakeDir, /d]
-	[ ! "${ARGS_OPT_LONG_DLP+1}" = '1' ] && {
+DLPIExtract(){ # /Extract /File:<DLP Path> [/Dir:<Extract to>]  [/Verbose, /v] [/MakeDir, /d]
+	[ ! "${ARGS_OPT_LONG_File+1}" = '1' ] && {
 		DLPIUsage
 		return 1;
 	}
 
-	[ ! -e "${ARGS_OPT_LONG_DLP}" ] && {
-		error "DLP '${ARGS_OPT_LONG_DLP}' not found."
+	[ ! -e "${ARGS_OPT_LONG_File}" ] && {
+		error "DLP '${ARGS_OPT_LONG_File}' not found."
 		return 1;
 	}
 
 	[ ! "${ARGS_OPT_LONG_MakeDir}${ARGS_OPT_LONG_d}" = '' ] && mkdir -p "${ARGS_OPT_LONG_Dir}"
 
-	cpio -F "${ARGS_OPT_LONG_DLP}" -H newc -i --to-stdout DESLPackage.def > "${TMPDIR}/DESLPackage.def" 2>/dev/null || return ${?};
+	cpio -F "${ARGS_OPT_LONG_File}" -H newc -i --to-stdout DESLPackage.def > "${TMPDIR}/DESLPackage.def" 2>/dev/null || return ${?};
 
 	ConfigLoad "${TMPDIR}/DESLPackage.def" DLPExtract > /dev/null || return ${?};
 
@@ -232,7 +232,7 @@ DLPIExtract(){ # /Extract /DLP:<DLP Path> [/Dir:<Extract to>]  [/Verbose, /v] [/
 
 	local CD=0;
 	[ ! "${ARGS_OPT_LONG_Dir}" = '' ] && {
-		ARGS_OPT_LONG_DLP=`readlink -f "${ARGS_OPT_LONG_DLP}"` || return ${?};
+		ARGS_OPT_LONG_File=`readlink -f "${ARGS_OPT_LONG_File}"` || return ${?};
 		cd "${ARGS_OPT_LONG_Dir}" || return ${?};
 		CD=1;
 	}
@@ -244,12 +244,12 @@ DLPIExtract(){ # /Extract /DLP:<DLP Path> [/Dir:<Extract to>]  [/Verbose, /v] [/
 			CMD='-i';
 			[ "${DLPI_LIST_ONLY:-0}" = '1' ] && CMD='-t';
 			[ ! "${ARGS_OPT_LONG_Verbose}${ARGS_OPT_LONG_v}" = '' ] && EX_OPTS="${EX_OPTS} -v";
-			cpio -F "${ARGS_OPT_LONG_DLP}" -H newc -i --to-stdout "data.dla${DLP_DATA_SUFFIX}" 2>/dev/null | ${DecompApp} | cpio -H nwec ${CMD} -d -u ${EX_OPTS} 2>/dev/null;;
+			cpio -F "${ARGS_OPT_LONG_File}" -H newc -i --to-stdout "data.dla${DLP_DATA_SUFFIX}" 2>/dev/null | ${DecompApp} | cpio -H nwec ${CMD} -d -u ${EX_OPTS} 2>/dev/null;;
 		'tar' )
 			CMD='x';
 			[ "${DLPI_LIST_ONLY:-0}" = '1' ] && CMD='t';
 			[ ! "${ARGS_OPT_LONG_Verbose}${ARGS_OPT_LONG_v}" = '' ] && EX_OPTS='v';
-			cpio -F "${ARGS_OPT_LONG_DLP}" -H newc -i --to-stdout "data.tar${DLP_DATA_SUFFIX}" 2>/dev/null | ${DecompApp} | tar ${CMD}${EX_OPTS};;
+			cpio -F "${ARGS_OPT_LONG_File}" -H newc -i --to-stdout "data.tar${DLP_DATA_SUFFIX}" 2>/dev/null | ${DecompApp} | tar ${CMD}${EX_OPTS};;
 		* )
 			error "Unsupported archive method '${TypeA}'";
 			return 1;;
