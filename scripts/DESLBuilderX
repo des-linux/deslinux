@@ -43,7 +43,7 @@ DESLB_Main(){
 	}
 
 	# Override BUILD_DIR if package is bootstrap/*
-	ChangeBuildDirIfPackageIsBootstrap;
+	ChangeEnvIfPackageIsBootstrap;
 
 	# Verify 'Arch'
 	VerifyArch;
@@ -60,8 +60,8 @@ return ${R};
 
 
 ExportBootstrapArch(){
-	local T1=${BUILDER_ARCH_ORG};
-	local T3=${BUILDER_ARCH_ORG_T3};
+	local T1=${BOOTSTRAP_ARCH_ORG};
+	local T3=${BOOTSTRAP_ARCH_ORG_T3};
 
 	[ "${T1}" = '' ] && {
 		local ARCH=`${SCRIPTS_DIR}/config.guess`;
@@ -72,20 +72,20 @@ ExportBootstrapArch(){
 		T3=${3};
 	}
 
-	export BOOTSTRAP_ARCH_BUILD_ORG=${T1};
-	export BOOTSTRAP_TARGET_ORG=${BOOTSTRAP_ARCH_BUILD_ORG}-desl_bootstrap-${T3};
+	export BUILDER_ARCH_BUILD_ORG=${T1};
+	export BOOTSTRAP_TARGET_ORG=${BUILDER_ARCH_BUILD_ORG}-desl_bootstrap-${T3};
 
 	[ "${T1}" = "x86_64" ] && [ "${ARGS_OPT_LONG_Skip_x86Test}" = '' ] && {
 		${SCRIPTS_DIR}/x86test && T1=i686;
 	}
 
-	export BOOTSTRAP_ARCH_BUILD=${T1};
-	export BOOTSTRAP_TARGET=${BOOTSTRAP_ARCH_BUILD}-desl_bootstrap-${T3};
+	export BUILDER_ARCH_BUILD=${T1};
+	export BOOTSTRAP_TARGET=${BUILDER_ARCH_BUILD}-desl_bootstrap-${T3};
 
-	export BOOTSTRAP_ARCH=${BOOTSTRAP_ARCH_BUILD};
-	case ${BOOTSTRAP_ARCH_BUILD} in
-		i686	) BOOTSTRAP_ARCH='x86';;
-		x86_64	) BOOTSTRAP_ARCH='x64';;
+	export BUILDER_ARCH=${BUILDER_ARCH_BUILD};
+	case ${BUILDER_ARCH_BUILD} in
+		i686	) BUILDER_ARCH='x86';;
+		x86_64	) BUILDER_ARCH='x64';;
 	esac
 	return 0;
 }
@@ -96,11 +96,20 @@ GetTargetArch(){
 	export DESL_ARCH=${CONFIG_Target_Arch};
 
 	# Arch override by 'DESLB_ARCH' env. [1/2]
-	[ "${DESLB_ARCH:-BUILD}" != "BUILD" ] && DESL_ARCH="${DESLB_ARCH}";
+	[ ! "${DESLB_ARCH:-BUILD}" = "BUILD" ] && DESL_ARCH="${DESLB_ARCH}";
 
 	# Arch override by '/Arch' option. [2/2]
-	[ "${ARGS_OPT_LONG_Arch}" != '' ] && {
+	[ ! "${ARGS_OPT_LONG_Arch}" = '' ] && {
 		DESL_ARCH="${ARGS_OPT_LONG_Arch}";
+	}
+
+	# Special Arch 'BUILD' for build tools.
+	[ "${ARGS_OPT_LONG_Arch}" = "BUILD" ] && {
+		export ORG_BUILD_DIR="${BUILD_DIR}";
+		DESL_ARCH="${BUILDER_ARCH}";
+
+		SKIP_PREREQ=1;
+		DESL_INTERNAL_TOOLS=1;
 	}
 
 	# Convert DESL_ARCH to internal format
@@ -154,12 +163,12 @@ ExportDirsPath(){
 	export INCLUDES_DIR="${SCRIPTS_DIR}"/includes;
 
 	export BUILD_DIR="${BUILD_ROOT_DIR}/desl-${DESL_ARCH}";
-	export BUILD_DIR_BOOTSTRAP="${BUILD_ROOT_DIR}/builder-${BUILDER_ARCH}/bootstrap-${BOOTSTRAP_ARCH}";
+	export BUILD_DIR_BOOTSTRAP="${BUILD_ROOT_DIR}/bootstrap-${BOOTSTRAP_ARCH}/builder-${BUILDER_ARCH}";
 	export SHARED_SOURCE_ROOT_DIR="${BUILD_ROOT_DIR}/shared";
 
-	export BOOTSTRAP_DIR="${BOOTSTRAP_ROOT_PREFIX}-${BUILDER_ARCH}/bootstrap-${BOOTSTRAP_ARCH}";
+	export BOOTSTRAP_DIR="${BOOTSTRAP_ROOT_PREFIX}-${BOOTSTRAP_ARCH}/builder-${BUILDER_ARCH}";
 
-	export TOOLCHAIN_BASE_DIR="${TOOLCHAIN_ROOT_DIR}/build-${BOOTSTRAP_ARCH}";
+	export TOOLCHAIN_BASE_DIR="${TOOLCHAIN_ROOT_DIR}/builder-${BUILDER_ARCH}";
 	export TOOLCHAIN_TOOLS_DIR="${TOOLCHAIN_BASE_DIR}/tools";
 	export TOOLCHAIN_DIR="${TOOLCHAIN_BASE_DIR}/desl-${DESL_ARCH}";
 
@@ -170,10 +179,11 @@ ExportDirsPath(){
 	export CORE_ROOTFS_DIR="${BUILD_DIR}/rootfs/core";
 	export ROOTFS_DIR="${BUILD_DIR}/rootfs/desl";
 
-	export IMAGE_DIR="${IMAGE_ROOT_DIR}/${DESL_TARGET}";
+	export IMAGE_DIR="${IMAGE_ROOT_DIR}/desl-${DESL_ARCH}";
 	export DLP_DIR="${IMAGE_DIR}/packages";
 
-	export IMAGE_BOOTSTRAP_DIR="${IMAGE_ROOT_DIR}/build-${BOOTSTRAP_ARCH}";
+	export IMAGE_BOOTSTRAP_DIR="${IMAGE_ROOT_DIR}/bootstrap-${BOOTSTRAP_ARCH}";
+	export IMAGE_BUILDER_DIR="${IMAGE_ROOT_DIR}/desl-${BUILDER_ARCH}";
 	export DLP_BOOTSTRAP_DIR="${IMAGE_BOOTSTRAP_DIR}/packages";
 
 	export DLP_DEST_DIR="/tmp/dlp";
@@ -182,32 +192,7 @@ ExportDirsPath(){
 
 	# toolchain for Windows
 	export DES_W_TARGET="i686-desl-mingw32";
-	export BOOTSTRAP_W_DIR="${BOOTSTRAP_ROOT_DIR}-${BUILDER_ARCH}/${DES_W_TARGET}";
-
-
-	# Special Arch 'BUILD' for build tools.
-	[ "${ARGS_OPT_LONG_Arch}" = "BUILD" ] && {
-		ORG_BUILD_DIR="${BUILD_DIR}";
-
-		DESL_ARCH_BUILD="${BOOTSTRAP_ARCH_BUILD}";
-		DESL_ARCH="${BOOTSTRAP_ARCH}";
-		DESL_TARGET="${BOOTSTRAP_TARGET}";
-
-		IMAGE_DIR="${IMAGE_BOOTSTRAP_DIR}";
-		DLP_DIR="${DLP_BOOTSTRAP_DIR}";
-		BUILD_DIR="${BUILD_DIR_BOOTSTRAP}";
-		TOOLCHAIN_DIR="${BOOTSTRAP_DIR}";
-		TOOLCHAIN_USR_DIR="${BOOTSTRAP_DIR}/usr";
-		TOOLCHAIN_LOCAL_DIR="${BOOTSTRAP_DIR}/usr/local";
-
-		local T="/tmp/deslb";
-		CORE_ROOTFS_DIR=${T};
-		ROOTFS_DIR=${T};
-
-		SKIP_PREREQ=1;
-		DESL_FORCE_STATIC=1; # Current version of bootstrap can generate only static. So nothing to do required.
-		DESL_INTERNAL_TOOLS=1;
-	}
+	export BOOTSTRAP_W_DIR="${BOOTSTRAP_ROOT_PREFIX}-${BOOTSTRAP_ARCH}/win-x86";
 
 	return 0;
 }
@@ -310,12 +295,16 @@ VerifyArch(){
 	exit 1;
 }
 
-ChangeBuildDirIfPackageIsBootstrap(){
-	local IFS=$'/';
-	set -- ${DESL_BUILD_PACKAGE}
-	IFS=${OFS};
+ChangeEnvIfPackageIsBootstrap(){
+	local C="${1:-${PACKAGE_ROOT_CATEGORY}}";
+	[ ! "${C}" = "bootstrap" ] && return 0;
 
-	[ "${1}" = "bootstrap" ] && BUILD_DIR=${BUILD_DIR_BOOTSTRAP};
+	BUILD_DIR=${BUILD_DIR_BOOTSTRAP};
+	DLP_DIR=${DLP_BOOTSTRAP_DIR};
+
+	PATH="${BOOTSTRAP_DIR}/sbin:${BOOTSTRAP_DIR}/bin:${PATH}";
+
+	return 0;
 }
 
 CheckPrerequisites(){
@@ -331,20 +320,20 @@ RunCommand(){
 
 		# Standard options
 		'Build' | '' ) # Prepare,Config,Compile,Install
-			"${DESL_BUILDER}" "${@}" /M:/Prepare	|| return ${?};
-			"${DESL_BUILDER}" "${@}" /M:/Config	|| return ${?};
-			"${DESL_BUILDER}" "${@}" /M:/Compile	|| return ${?};
-			"${DESL_BUILDER}" "${@}" /M:/Install	|| return ${?};
+			RunDESLBuilder "${@}" /M:/Prepare	|| return ${?};
+			RunDESLBuilder "${@}" /M:/Config	|| return ${?};
+			RunDESLBuilder "${@}" /M:/Compile	|| return ${?};
+			RunDESLBuilder "${@}" /M:/Install	|| return ${?};
 		;;
 
 		'Rebuild' ) # Clean, Build
 			[ ! "${ARGS_OPT_LONG_Full}" = '' ] && { # /Full: Remove, Build
-				"${DESL_BUILDER}" "${@}" /M:/Remove	|| return ${?};
-				"${DESL_BUILDER}" "${@}" /M:/Build	|| return ${?};
+				RunDESLBuilder "${@}" /M:/Remove	|| return ${?};
+				RunDESLBuilder "${@}" /M:/Build	|| return ${?};
 			}
 
-			"${DESL_BUILDER}" "${@}" /M:/Clean	|| return ${?};
-			"${DESL_BUILDER}" "${@}" /M:/Build	|| return ${?};
+			RunDESLBuilder "${@}" /M:/Clean	|| return ${?};
+			RunDESLBuilder "${@}" /M:/Build	|| return ${?};
 		;;
 
 		'SubArch' )
@@ -354,8 +343,8 @@ RunCommand(){
 		# Advanced options
 		'Prepare' ) # Download, Extract
 			DESLB_NESTLV=$((DESLB_NESTLV-1));
-			"${DESL_BUILDER}" "${@}" /M:/Download	|| return ${?};
-			"${DESL_BUILDER}" "${@}" /M:/Extract	|| return ${?};
+			RunDESLBuilder "${@}" /M:/Download	|| return ${?};
+			RunDESLBuilder "${@}" /M:/Extract	|| return ${?};
 		;;
 
 
@@ -399,7 +388,7 @@ RunCommand(){
 
 		'Clean' ) # has sub menu: Full ( = /Reset)
 			[ ! "${ARGS_OPT_LONG_Full}" = '' ] && {
-				"${DESL_BUILDER}" "${@}" /M:/Reset
+				RunDESLBuilder "${@}" /M:/Reset
 				return ${?};
 			}
 			BuilderClean;
@@ -448,3 +437,12 @@ RunCommand(){
 
 return 0;
 };
+
+
+RunDESLBuilder(){
+	case ${DESLB_RUN_IN_WORLD} in
+		1) DESLB_SUBPROCESS=1 "${DESL_BUILDER}" "${@}" || return ${?};;
+		*) DESLB_SUBPROCESS=1 "${CORETOOLS_DIR}/sh" "${DESL_BUILDER}" "${@}" || return ${?};;
+	esac
+	return 0;
+}

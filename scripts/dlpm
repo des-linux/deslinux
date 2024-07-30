@@ -1,0 +1,36 @@
+#!/bin/sh
+
+Main(){
+	CheckEnv || return ${?};
+
+	warning DLPM
+}
+
+error(){
+	echo -e "\e[31;1mE:\e[m\e[1m ${*}\e[m" >&2
+}
+warning(){
+	echo -e "\e[33;1mW:\e[m\e[1m ${*}\e[m" >&2
+}
+infoex(){
+	echo -e "\e[m\e[1mI:\e[m\e[1m ${*}\e[m"
+}
+info(){
+	echo -e "I: ${*}"
+}
+
+CheckEnv(){
+	# Environments do not support "\X" style escapes. (Can't handle 'CR+LF' line endings)
+	local XDFS XLFS;
+	local TEST="newroot";
+	local IFS=$'\n\r\t';
+	set -- ${TEST}
+	[ ! "${1}" = "${TEST}" ] && {
+		error 'This only works in the standard DESLinux environment.'
+		return 1;
+	}
+	IFS=${OFS};
+	return 0;
+}
+
+Main "${@}"

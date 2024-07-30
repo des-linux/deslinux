@@ -16,13 +16,21 @@ DESLBFinalize(){
 }
 
 DESLBConfig(){
+	[ "${DESLB_SUPPORT_NATIVE_ISOLATION:-0}" = '1' ] && {
+		"${SHARED_SOURCE_DIR}/configure"
+		return ${?};
+	}
+
 	./configure
+	return ${?};
 }
 
 DESLBCompile(){
 	make
+	return ${?};
 }
 
 DESLBInstall(){
-	make install
+	make install DESTDIR=${DLP_INSTALL_DIR} prefix=/
+	return ${?};
 }

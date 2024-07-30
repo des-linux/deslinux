@@ -24,7 +24,7 @@ build_se(){
 	local BB_SRC_URL="${BB_SRC_BASE}/${BB_SRC_FILE}.${BB_SRC_EXT}";
 	local BB_SRC_LOCAL="${DL_CACHE_DIR}/${BB_SRC_FILE}.${BB_SRC_EXT}";
 
-	local BB_BUILD_DIR_BASE="${BUILD_ROOT_DIR}/builder-${BUILDER_ARCH}/";
+	local BB_BUILD_DIR_BASE="${BUILD_ROOT_DIR}/bootstrap-${BOOTSTRAP_ARCH}/";
 	local BB_BUILD_DIR="${BB_BUILD_DIR_BASE}/${BB_SRC_FILE}";
 
 	[ ! -e "${BB_SRC_LOCAL}" ] && {
@@ -57,10 +57,14 @@ build_se(){
 			echo "E: Failed to config."
 			return 4;
 		}
-		make -j4 || {
-			echo "E: Failed to build."
-			echo "E: Please install standard build tools for your system."
-			return 5;
+
+		local n=$(nproc);
+		make -j$((n+2)) || {
+			make || {
+				echo "E: Failed to build."
+				echo "E: Please install standard build tools for your system."
+				return 5;
+			}
 		}
 		cd "${ODIR}"
 	}
@@ -76,8 +80,8 @@ build_se(){
 }
 
 download_se(){
-	local BB_BIN_LOCAL="${DL_CACHE_DIR}/${BB_BIN_FILE}${BUILDER_ARCH_ORG}";
-	local BB_BIN_URL="${BB_BIN_BASE}/${BB_BIN_FILE}${BUILDER_ARCH_ORG}";
+	local BB_BIN_LOCAL="${DL_CACHE_DIR}/${BB_BIN_FILE}${BOOTSTRAP_ARCH_ORG}";
+	local BB_BIN_URL="${BB_BIN_BASE}/${BB_BIN_FILE}${BOOTSTRAP_ARCH_ORG}";
 
 	echo 'I: Downloading busybox pre-built binary...'
 

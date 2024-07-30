@@ -7,17 +7,17 @@
 
 ExportsInfo(){
 cat <<EOF
-BOOTSTRAP_ARCH			Detected architecture for bootstrap toolchain
-BOOTSTRAP_ARCH_BUILD		Detected architecture for bootstrap toolchain (for build scripts)
-BOOTSTRAP_ARCH_BUILD_ORG	Detected architecture for bootstrap toolchain (Unmodified)
+BUILDER_ARCH			Detected architecture for bootstrap toolchain
+BUILDER_ARCH_BUILD		Detected architecture for bootstrap toolchain (for build scripts)
+BUILDER_ARCH_BUILD_ORG	Detected architecture for bootstrap toolchain (Unmodified)
 BOOTSTRAP_DIR			Directory of bootstrap toolchain
 BOOTSTRAP_ROOT_PREFIX		Prefix for bootstrap toolchains (BOOTSTRAP_DIR)
 BOOTSTRAP_TARGET		Bootstrap triplet for configure
 BOOTSTRAP_TARGET_ORG		Bootstrap triplet for configure (Unmodified)
 BOOTSTRAP_W_DIR			Directory of bootstrap toolchain (win32)
-BUILDER_ARCH			Detected architecture of current machine
-BUILDER_ARCH_ORG		Detected architecture of current machine (Unmodified)
-BUILDER_ARCH_ORG_T3		Detected system type of current machine
+BOOTSTRAP_ARCH			Detected architecture of current machine
+BOOTSTRAP_ARCH_ORG		Detected architecture of current machine (Unmodified)
+BOOTSTRAP_ARCH_ORG_T3		Detected system type of current machine
 BUILD_DIR			Directory for building apps
 BUILD_DIR_BOOTSTRAP		Directory for building bootstrap toolchains
 BUILD_ROOT_DIR			Root directory for building

@@ -68,8 +68,15 @@ PrepareBuildDirectory(){ # build_dir, shared_dir
 	local R_DIR="${2}";
 	mkdir -p "${W_DIR}"
 
+	export SHARED_SOURCE_DIR='-';
+	[ ! "${Package_ImportCoreInfo:--}" = '-' ] && {
+		vinfo 'This package imports CoreInfo'
+		DESLBP_GetSharedDirectory "${Package_ImportCoreInfo}";
+		return 0;
+	}
 	[ "${DESLB_SUPPORT_NATIVE_ISOLATION:-0}" = '1' ] && {
 		vinfo 'This package supports native isolation'
+		SHARED_SOURCE_DIR="${R_DIR}";
 		return 0;
 	}
 
@@ -89,19 +96,106 @@ PrepareBuildDirectory(){ # build_dir, shared_dir
 }
 
 MakeDLP(){
-
+	local DLP_ROOT_DIR="${DLP_DEST_DIR}/root";
 	[ ! -e "${DLP_INSTALL_DIR}" ] && {
 		vinfoex "No files are installed."
 		return 0;
 	}
 
-	find $DLP_INSTALL_DIR
+	local BaseSystem='';
+	[ "${PACKAGE_ROOT_CATEGORY}" = 'bootstrap' ] && BaseSystem='/BaseSystem:DESLBuilder';
+	mkdir -p "${DLP_ROOT_DIR}/"
 
-	error "${SCRIPTS_DIR}/dlpi" /Create /Dir:"${DLP_INSTALL_DIR}" \
-		/Script:"${CURRENT_PACKAGE_DIR}/DESLPackage.sh" \
-		/MetaData:"${CURRENT_PACKAGE_DIR}/DESLPackage.def" \
-		/DataType:DLP || return ${?};
+	{ # doc
+		local M=0;
+		mkdir -p "${DLP_ROOT_DIR}/share"
+		[ -e "${DLP_INSTALL_DIR}/share/doc" ] && {
+			mv "${DLP_INSTALL_DIR}/share/doc" "${DLP_ROOT_DIR}/share" || return ${?};
+			M=1;
+		}
+		[ -e "${DLP_INSTALL_DIR}/share/man" ] && {
+			mv "${DLP_INSTALL_DIR}/share/man" "${DLP_ROOT_DIR}/share" || return ${?};
+			M=1;
+		}
+		[ -e "${DLP_INSTALL_DIR}/share/info" ] && {
+			mv "${DLP_INSTALL_DIR}/share/info" "${DLP_ROOT_DIR}/share" || return ${?};
+			M=1;
+		}
+
+		# remove share/ if empty
+		rmdir "${DLP_INSTALL_DIR}/share/" 2>/dev/null
+		rmdir "${DLP_ROOT_DIR}/share/" 2>/dev/null
+
+		[ "${M}" = '1' ] && {
+			RunDLPI /Create /Dir:"${DLP_ROOT_DIR}" /PackageDef:"${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def" /Platform:${DESL_ARCH} /ID:${DESL_BUILD_PACKAGE} /SaveTo:"${Package_Category}/${Package_ID}-doc_${Package_ID_Suffix}_${DESL_ARCH}.dlp" ${BaseSystem} || return ${?};
+			rm -rf "${DLP_ROOT_DIR}" || return ${?};
+			mkdir -p "${DLP_ROOT_DIR}" || return ${?};
+		}
+
+	}
+
+	{ # dev
+		local M=0;
+		local x p;
+		mkdir -p "${DLP_ROOT_DIR}/lib"
+
+		[ -e "${DLP_INSTALL_DIR}/include" ] && {
+			mv "${DLP_INSTALL_DIR}/include" "${DLP_ROOT_DIR}" || return ${?};
+			M=1;
+		}
+
+		[ -e "${DLP_INSTALL_DIR}/lib/pkgconfig" ] && {
+			mv "${DLP_INSTALL_DIR}/lib/pkgconfig" "${DLP_ROOT_DIR}/lib" || return ${?};
+			M=1;
+		}
+
+		for x in `find "${DLP_INSTALL_DIR}" -name "*.a"`; do
+			p="${DLP_ROOT_DIR}/${x#${DLP_INSTALL_DIR}}";
+			mkdir -p "${p%/*}" || return ${?};
+			mv "${x}" "${p}" || return ${?};
+			M=1;
+		done
+
+		# remove share/ if empty
+		rmdir "${DLP_ROOT_DIR}/include/" 2>/dev/null
+		rmdir "${DLP_ROOT_DIR}/lib/" 2>/dev/null
+
+		[ "${M}" = '1' ] && {
+			RunDLPI /Create /Dir:"${DLP_ROOT_DIR}" /PackageDef:"${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def" /Platform:${DESL_ARCH} /ID:${DESL_BUILD_PACKAGE} /SaveTo:"${Package_Category}/${Package_ID}-dev_${Package_ID_Suffix}_${DESL_ARCH}.dlp" ${BaseSystem} || return ${?};
+			rm -rf "${DLP_ROOT_DIR}" || return ${?};
+			mkdir -p "${DLP_ROOT_DIR}" || return ${?};
+		}
+
+	}
+
+	# Cleanup
+	for x in `find "${DLP_INSTALL_DIR}" -name "*.la"`; do
+		rm "${x}" || return ${?};
+		rmdir "${x%/*}" 2>/dev/null
+	done
+
+	CheckEmptyDir "${DLP_INSTALL_DIR}" && {
+		warning "No main files found to install."
+	} || {
+		RunDLPI /Create /Dir:"${DLP_INSTALL_DIR}" /PackageDef:"${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def" /Platform:${DESL_ARCH} /ID:${DESL_BUILD_PACKAGE} /SaveTo:"${Package_Category}/${Package_ID}_${Package_ID_Suffix}_${DESL_ARCH}.dlp" || return ${?};
+	}
+
 	return 0;
+}
+
+RunDLPI(){
+	case ${DESLB_RUN_IN_WORLD} in
+		1) DESLB_SUBPROCESS=1 "${SCRIPTS_DIR}/dlpi" "${@}" || return ${?};;
+		*) DESLB_SUBPROCESS=1 "${CORETOOLS_DIR}/sh" "${SCRIPTS_DIR}/dlpi" "${@}" || return ${?};;
+	esac
+	return 0;
+}
+
+CheckEmptyDir(){
+	local P="${1}";
+	set -- ${1}/*
+	[ "${P}/*" = "${1}" ] && return 0;
+	return 1;
 }
 
 error(){

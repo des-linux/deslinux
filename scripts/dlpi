@@ -1,0 +1,361 @@
+#!/bin/sh
+
+Main(){
+	CheckEnv || return ${?};
+
+	# Private: variables
+	local SELF="${BASH_SOURCE:-${DESLB_SELF_PATH:-${0}}}";
+	SELF=`readlink -f "${SELF}" || echo "${SELF}"`;
+
+	local sRoot="${SELF%/*}";
+	local sName="${SELF##*/}";
+
+	. ${sRoot}/ArgsParser.sh
+	. ${sRoot}/ConfigManager.sh
+
+
+	ParseArgs "${@}";
+	case "${ARGS_TARGET}" in
+		Install )
+			EnterSession DLPIInstall;
+			return ${?};;
+		Check ) ;;
+		Remove ) ;;
+		List) ;;
+		Extract )
+			EnterSession DLPIExtract;
+			return ${?};;
+		Initialize )
+			EnterSession DLPIInitialize;
+			return ${?};;
+		Create )
+			EnterSession DLPICreate;
+			return ${?};;
+		*)
+			DLPIUsage;
+			return 0;;
+	esac
+}
+
+EnterSession(){
+	local TMPDIR="/tmp/DLPI_${RANDOM}_${RANDOM}_${RANDOM}_${RANDOM}_${RANDOM}/";
+	mkdir -p "${TMPDIR}" || return ${?};
+
+	info 'Starting DLPI session'
+	"${1}" "${TMPDIR}"
+	local R=${?};
+	info "DLPI session exited with status code: ${R}"
+
+	rm -rf "${TMPDIR}" || return ${?};
+	return ${R};
+}
+
+DLPIInstall(){ # /Install /DLP:<DLP Path> [/Root:<DLP Root>] [/Force] [/IgnorePlatform] [/IgnoreSystem] [/IgnoreDepends] [/IgnoreConflict]
+	[ ! "${ARGS_OPT_LONG_DLP+1}" = '1' ] && {
+		DLPIUsage
+		return 1;
+	}
+
+	local ROOT_DIR="${ARGS_OPT_LONG_Root:-/usr}/.dlpi/";
+	local DLP_CONFIG="${ROOT_DIR}/dlp.conf";
+	[ ! -e "${DLP_CONFIG}" ] && {
+		error "Directory '${ARGS_OPT_LONG_Root:-/usr}' is not initialized with dlpi."
+		return 1;
+	}
+
+	[ ! -e "${ARGS_OPT_LONG_DLP}" ] && {
+		error "DLP '${ARGS_OPT_LONG_DLP}' not found."
+		return 1;
+	}
+
+	ConfigLoad "${DLP_CONFIG}" DLPConfig > /dev/null
+	local Platform_Root BaseSystem_Root;
+	ConfigGet Platform_Root 'DLPConfig::DLP:Platform'
+	ConfigGet BaseSystem_Root 'DLPConfig::DLP:System'
+
+	info 'Loading DLP...'
+	cpio -F "${ARGS_OPT_LONG_DLP}" -H newc -i --to-stdout DESLPackage.def > "${TMPDIR}/DESLPackage.def" 2>/dev/null || return ${?};
+	ConfigLoad "${TMPDIR}/DESLPackage.def" DLPackage > /dev/null || return ${?};
+	local ID Platform_Package BaseSystem_Pacakge;
+	ConfigGet ID 'DLPackage::DLPInstaller:ID'
+	ConfigGet Platform_Package 'DLPackage::DLPInstaller:Platform'
+	ConfigGet BaseSystem_Pacakge 'DLPackage::DLPInstaller:System'
+
+
+	[ -e "${ROOT_DIR}/installed/${ID//\//_____}.dlpi" ] && {
+		error "Package '${ID}' is already installed."
+		return 1;
+	}
+
+	[ "${ARGS_OPT_LONG_Force}${ARGS_OPT_LONG_IgnorePlatform}" = '' ] && {
+		[ ! "${Platform_Root}" = "${Platform_Package}" ] && {
+			error "Package platform '${Platform_Package}' is not for this system '${Platform_Root}'";
+			return 2;
+		}
+	}
+	[ "${ARGS_OPT_LONG_Force}${ARGS_OPT_LONG_IgnoreSystem}" = '' ] && {
+		[ ! "${BaseSystem_Root}" = "${BaseSystem_Pacakge}" ] && {
+			error "Package target system '${BaseSystem_Pacakge}' is not for this system '${BaseSystem_Root}'";
+			return 2;
+		}
+	}
+
+	[ "${ARGS_OPT_LONG_Force}${ARGS_OPT_LONG_IgnoreDepends}" = '' ] && {
+		info 'Checking dependency...'
+		local Depends RuntimeDepends;
+		local Depends=`ConfigFileList "${TMPDIR}/DESLPackage.def" 'Depends'`;
+		local RuntimeDepends=`ConfigFileList "${TMPDIR}/DESLPackage.def" 'RuntimeDepends'`;
+		CheckDepends "${ROOT_DIR}" "${Depends} ${RuntimeDepends}" || return ${?};
+	}
+
+	info 'Loading file list...'
+	local FILE_LIST=`DLPI_LIST_ONLY=1 DLPIExtract`;
+
+	info 'Installing...'
+	mkdir -p "${ROOT_DIR}/installed/" || return ${?};
+	cp "${TMPDIR}/DESLPackage.def" "${ROOT_DIR}/installed/session.dlpi"
+	echo '[Files]' >> "${ROOT_DIR}/installed/session.dlpi"
+	echo "${FILE_LIST}" >> "${ROOT_DIR}/installed/session.dlpi"
+
+	ARGS_OPT_LONG_Dir="${ARGS_OPT_LONG_Root:-/usr}" ARGS_OPT_LONG_Verbose=1 DLPIExtract || return ${?};
+
+	mv "${ROOT_DIR}/installed/session.dlpi" "${ROOT_DIR}/installed/${ID//\//_____}.dlpi" || return ${?};
+
+	return 0;
+}
+
+DLPIInitialize(){ # /Initialize /Root:<DLP Root> /Platform:<Arch> [/System:<SystemName>] [/MakeDir, /d]
+	[ ! "${ARGS_OPT_LONG_Root+1}:${ARGS_OPT_LONG_Platform:+1}" = '1:1' ] && {
+		DLPIUsage
+		return 1;
+	}
+
+	[ ! "${ARGS_OPT_LONG_MakeDir}${ARGS_OPT_LONG_d}" = '' ] && mkdir -p "${ARGS_OPT_LONG_Root}"
+	[ ! -e "${ARGS_OPT_LONG_Root}" ] && {
+		error "Root directory '${ARGS_OPT_LONG_Root}' is not exist."
+		return 1;
+	}
+
+	[ -e "${ARGS_OPT_LONG_Root}/.dlpi" ] && {
+		error "Root directory '${ARGS_OPT_LONG_Root}' is already initialized."
+		return 1;
+	}
+
+	local DLP_CONFIG="${ARGS_OPT_LONG_Root}/.dlpi/dlp.conf";
+	mkdir -p "${ARGS_OPT_LONG_Root}/.dlpi"
+	echo '[DLP]' > "${DLP_CONFIG}"
+	echo "Platform	= ${ARGS_OPT_LONG_Platform}" >> "${DLP_CONFIG}"
+	echo "System	= ${ARGS_OPT_LONG_System:-DESLinux}" >> "${DLP_CONFIG}"
+
+	return 0;
+}
+
+DLPIExtract(){ # /Extract /DLP:<DLP Path> [/Dir:<Extract to>]  [/Verbose, /v] [/MakeDir, /d]
+	[ ! "${ARGS_OPT_LONG_DLP+1}" = '1' ] && {
+		DLPIUsage
+		return 1;
+	}
+
+	[ ! -e "${ARGS_OPT_LONG_DLP}" ] && {
+		error "DLP '${ARGS_OPT_LONG_DLP}' not found."
+		return 1;
+	}
+
+	[ ! "${ARGS_OPT_LONG_MakeDir}${ARGS_OPT_LONG_d}" = '' ] && mkdir -p "${ARGS_OPT_LONG_Dir}"
+
+	cpio -F "${ARGS_OPT_LONG_DLP}" -H newc -i --to-stdout DESLPackage.def > "${TMPDIR}/DESLPackage.def" 2>/dev/null || return ${?};
+
+	ConfigLoad "${TMPDIR}/DESLPackage.def" DLPExtract > /dev/null || return ${?};
+
+	local TypeA TypeC;
+	ConfigGet TypeA DLPExtract::Data:Archive '-'
+	ConfigGet TypeC DLPExtract::Data:Compress '-'
+
+	local DecompApp;
+	local DLP_DATA_SUFFIX;
+	case "${TypeC}" in
+		'-' ) DecompApp='cat'; DLP_DATA_SUFFIX='';;
+		'gz' ) DecompApp='gzip -d'; DLP_DATA_SUFFIX='.gz';;
+		'b64' ) DecompApp='base64 -d'; DLP_DATA_SUFFIX='.b64';;
+		* )
+			error "Unsupported compress method '${TypeC}'";
+			return 1;;
+	esac
+
+	local CD=0;
+	[ ! "${ARGS_OPT_LONG_Dir}" = '' ] && {
+		ARGS_OPT_LONG_DLP=`readlink -f "${ARGS_OPT_LONG_DLP}"` || return ${?};
+		cd "${ARGS_OPT_LONG_Dir}" || return ${?};
+		CD=1;
+	}
+
+	local EX_OPTS='';
+	local CMD='';
+	case "${TypeA}" in
+		'dla' )
+			CMD='-i';
+			[ "${DLPI_LIST_ONLY:-0}" = '1' ] && CMD='-t';
+			[ ! "${ARGS_OPT_LONG_Verbose}${ARGS_OPT_LONG_v}" = '' ] && EX_OPTS="${EX_OPTS} -v";
+			cpio -F "${ARGS_OPT_LONG_DLP}" -H newc -i --to-stdout "data.dla${DLP_DATA_SUFFIX}" 2>/dev/null | ${DecompApp} | cpio -H nwec ${CMD} -d -u ${EX_OPTS} 2>/dev/null;;
+		'tar' )
+			CMD='x';
+			[ "${DLPI_LIST_ONLY:-0}" = '1' ] && CMD='t';
+			[ ! "${ARGS_OPT_LONG_Verbose}${ARGS_OPT_LONG_v}" = '' ] && EX_OPTS='v';
+			cpio -F "${ARGS_OPT_LONG_DLP}" -H newc -i --to-stdout "data.tar${DLP_DATA_SUFFIX}" 2>/dev/null | ${DecompApp} | tar ${CMD}${EX_OPTS};;
+		* )
+			error "Unsupported archive method '${TypeA}'";
+			return 1;;
+	esac
+
+	[ "${CD:-0}" = '1' ] && {
+		cd - >/dev/null || return ${?};
+	}
+
+	local R=${?};
+	return ${?};
+}
+
+
+DLPICreate(){ # /Craete /Dir:<Root> /PackageDef:<DESLPackage.def> /Platform:<Arch> /ID:<ID> /SaveTo:<dlp>
+		# [/System:<SystemName>] [/Archive:<type>] [/Compress:<type>] [Type:<arc.comp>]
+	[ ! "${ARGS_OPT_LONG_Dir:+1}:${ARGS_OPT_LONG_PackageDef:+1}:${ARGS_OPT_LONG_Platform:+1}:${ARGS_OPT_LONG_ID:+1}:${ARGS_OPT_LONG_SaveTo:+1}" = '1:1:1:1:1' ] && {
+		DLPIUsage
+		return 1;
+	}
+
+	[ ! -e "${ARGS_OPT_LONG_Dir}" ] && {
+		error "Directory '${ARGS_OPT_LONG_Dir}' is not found."
+		return 1;
+	}
+
+	local TypeA TypeC;
+
+	# /Type:<arc>.<comp>: Deprecated, DESLinux v0.x compatible
+	case "${ARGS_OPT_LONG_Type:-dla.gz}" in
+		'dla.gz' ) TypeA='dla'; TypeC='gz';;
+		'dla' ) TypeA='dla'; TypeC='-';;
+		'cpio.gz' ) TypeA='dla'; TypeC='gz';;
+		'cpio' ) TypeA='dla'; TypeC='-';;
+		'tar.gz' ) TypeA='tar'; TypeC='gz';;
+		'tar' ) TypeA='tar'; TypeC='-';;
+		*)
+			error "Unsupported archive type '${ARGS_OPT_LONG_Type}' specified."
+			return 1;;
+	esac
+
+	# New archive / compress specification method
+	TypeA="${ARGS_OPT_LONG_Archive:-${TypeA:-dla}}";
+	TypeC="${ARGS_OPT_LONG_Compress:-${TypeC:-gz}}";
+
+	local CompApp;
+	local DLP_DATAFILE;
+	case "${TypeC}" in
+		'' | '-' | 'none' ) TypeC='-'; CompApp='cat'; DLP_DATAFILE='';;
+		'gz' | 'gzip' ) TypeC='gz'; CompApp='gzip'; DLP_DATAFILE='.gz';;
+		'b64' | 'base64' ) TypeC='b64'; CompApp='base64'; DLP_DATAFILE='.b64';;
+		*)
+			error "Unsupported compression type '${TypeC}' specified."
+			return 1;;
+	esac
+
+	info 'Creating install archive...'
+	case "${TypeA}" in
+		'dla' )
+			DLP_DATAFILE="data.dla${DLP_DATAFILE}";
+			MakeCPIO "${ARGS_OPT_LONG_Dir}" | ${CompApp} > "${TMPDIR}/${DLP_DATAFILE}" || return ${?};;
+		'tar' )
+			warning " Archive type '${TypeA}' is for compatibility with the old version."
+			warning " In the current version, you should use 'dla' archive type";
+			DLP_DATAFILE="data.tar${DLP_DATAFILE}";
+			tar c -C "${ARGS_OPT_LONG_Dir}" . | ${CompApp} > "${TMPDIR}/${DLP_DATAFILE}" || return ${?};;
+		*)
+			error "Unsupported archive type '${TypeA}' specified."
+			return 1;;
+	esac
+
+	local DLP_FILELIST="${TMPDIR}/DLP.lst";
+	info 'Generating DLP...'
+	echo '# DLP file list' > "${DLP_FILELIST}"
+
+	AddDESLPackageDef "${ARGS_OPT_LONG_PackageDef}" > "${TMPDIR}/DESLPackage.def" || return ${?};
+	echo "file DESLPackage.def "${TMPDIR}/DESLPackage.def" 0644 0 0" >> "${DLP_FILELIST}"
+
+	[ -e "${ARGS_OPT_LONG_PackageDef%/*}/DLPScript.sh" ] && {
+		echo "file DLPScript.sh "${ARGS_OPT_LONG_PackageDef%/*}/DLPScript.sh" 0644 0 0" >> "${DLP_FILELIST}"
+	}
+
+	echo "file ${DLP_DATAFILE} "${TMPDIR}/${DLP_DATAFILE}" 0644 0 0" >> "${DLP_FILELIST}"
+
+	MakeCPIO "${DLP_FILELIST}" > "${TMPDIR}/Package.dlp" || return ${?};
+
+	local DLP_PATH="${ARGS_OPT_LONG_SaveTo}";
+
+	case "${DLP_PATH}" in
+		*/*) mkdir -p "${DLP_PATH%/*}" || return ${?};
+	esac
+
+	mv "${TMPDIR}/Package.dlp" "${DLP_PATH}" || return ${?};
+
+	return 0;
+}
+
+AddDESLPackageDef(){ # Base.def
+	cat "${1}" || return ${?};
+	echo ''
+	echo '[DLPInstaller]'
+	echo "ID	= ${ARGS_OPT_LONG_ID}"
+	echo "System	= ${ARGS_OPT_LONG_System:-DESLinux}"
+	echo "Platform	= ${ARGS_OPT_LONG_Platform}"
+	echo ''
+	echo '[Data]'
+	echo "Archive	= ${TypeA}"
+	echo "Compress	= ${TypeC}"
+	echo ''
+	return 0;
+}
+
+CheckDepends(){ # Depends ...
+	local R=0;
+	local D="${2}";
+	local IFS=$' ';
+	local x;
+	for x in ${D}; do
+		[ ! -e "${ROOT_DIR}/installed/${x//\//_____}.dlpi" ] && {
+			error "Dependency '${x}' is not insatalled."
+			R=1;
+		}
+	done
+	return ${R};
+}
+
+error(){
+	echo -e "\e[31;1mE:\e[m\e[1m ${*}\e[m" >&2
+}
+warning(){
+	echo -e "\e[33;1mW:\e[m\e[1m ${*}\e[m" >&2
+}
+infoex(){
+	echo -e "\e[m\e[1mI:\e[m\e[1m ${*}\e[m"
+}
+info(){
+	echo -e "I: ${*}"
+}
+
+CheckEnv(){
+	# Environments do not support "\X" style escapes. (Can't handle 'CR+LF' line endings)
+	local XDFS XLFS;
+	local TEST="newroot";
+	local IFS=$'\n\r\t';
+	set -- ${TEST}
+	[ ! "${1}" = "${TEST}" ] && {
+		error 'This only works in the standard DESLinux environment.'
+		return 1;
+	}
+	return 0;
+}
+
+DLPIUsage(){
+	error USAGEUASGE!
+}
+
+Main "${@}"

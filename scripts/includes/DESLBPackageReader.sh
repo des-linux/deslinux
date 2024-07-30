@@ -5,16 +5,18 @@
 #//	http://xprj.net/
 #//////////////////////////////////////////////////
 
-DESLBPACKAGEREADER_DESLPACKAGE='Name Version Revision';
-DESLBPACKAGEREADER_SOURCE='MakeDir SHA256 BaseURI FileExts FileName RootDir SaveTo';
+DESLBPACKAGEREADER_DESLPACKAGE='ImportCoreInfo Category ID ID_Suffix ID_Full Name Version Revision';
+DESLBPACKAGEREADER_SOURCE='BaseURI_RAW FilaName_RAW RootDir_RAW SaveTo_RAW MakeDir SHA256 BaseURI FileExts FileName RootDir SaveTo File';
 
 PackageInfo(){
 cat <<EOF
 Package_Category		Category ID
 Package_Name			User-friendly package name
-Package_ID_Full			Final package ID (Use as DLP file name)
 Package_ID			Package ID
+Package_ID_Full			Final package ID (Use as DLP file name)
+Package_ID_Suffix
 Package_Revision		Revision number in same version
+Package_Version			Package version
 Package_Source_BaseURI		Source download URL (Base)
 Package_Source_BaseURI_RAW	Source download URL (Base, RAW)
 Package_Source_File		Full remote file name of source
@@ -23,7 +25,6 @@ Package_Source_FileName_RAW	Remote file name of source (RAW)
 Package_Source_FileExts		Remote file name extensions of source
 Package_Source_RootDir		Root directory in source archive
 Package_Source_RootDir_RAW	Root directory in source archive (RAW)
-Package_Version			Package version
 Package_Source_MakeDir
 Package_Source_SHA256
 Package_Source_SaveTo
@@ -66,8 +67,21 @@ PackageLoad(){ # PackageID, PackageDef, [Prefix]
 	R=`PackageRead "${PACKAGE_ID}" "${PACKAGE_DEF_FILE}"` || return ${?};
 
 	for x in ${R}; do
-		eval ${VAL_PREFIX:+${VAL_PREFIX}_}$x
+		eval local local_${x}
+		eval ${VAL_PREFIX:+${VAL_PREFIX}_}${x}
 	done
+
+	[ ! "${local_Package_ImportCoreInfo:--}" = '-' ] && {
+		local PACKAGE_COREINFO_FILE="${PACKAGES_DIR}/${local_Package_ImportCoreInfo}/DESLPackage.def";
+		R=`PackageRead "${local_Package_ImportCoreInfo}" "${PACKAGE_COREINFO_FILE}"` || return ${?};
+		for x in ${R}; do
+			eval local cic_${x};
+		done
+		eval ${VAL_PREFIX:+${VAL_PREFIX}_}Package_Version="${cic_Package_Version}";
+		eval ${VAL_PREFIX:+${VAL_PREFIX}_}Package_ID_Suffix="${cic_Package_Version}-${local_Package_Revision}";
+	}
+
+
 	return 0;
 }
 
@@ -91,6 +105,7 @@ PackageRead(){ # PackageID, PackageDef
 	ConfigGet Package_Name DESLPackage::DESLPackage:Name -
 	ConfigGet Package_Version DESLPackage::DESLPackage:Version 0
 	ConfigGet Package_Revision DESLPackage::DESLPackage:Revision 0
+	ConfigGet Package_ImportCoreInfo DESLPackage::DESLPackage:ImportCoreInfo -
 
 	# [Source] section
 	for x in ${DESLBPACKAGEREADER_SOURCE}; do
@@ -99,11 +114,19 @@ PackageRead(){ # PackageID, PackageDef
 	done
 
 	# Generated
-	Package_ID_Full="${Package_Category}/${Package_ID}_${Package_Version}-${Package_Revision}";
+	Package_ID_Suffix="${Package_Version}-${Package_Revision}";
+	Package_ID_Full="${Package_Category}/${Package_ID}_${Package_ID_Suffix}";
 	Package_Source_File="${Package_Source_FileName}${Package_Source_FileExts}";
+
+	# Generate if not defined
 	[ "${Package_Source_RootDir}" = '' ] && {
 		Package_Source_RootDir="${Package_Source_FileName:-${PACKAGE_ID//\//_}}";
 	}
+
+	[ "${Package_Source_SaveTo}" = '' ] && {
+		Package_Source_SaveTo="${Package_Source_FileName}${Package_Source_FileExts}";
+	}
+
 
 	for x in ${DESLBPACKAGEREADER_DESLPACKAGE}; do
 		eval echo "Package_${x}=\'\${Package_${x}}\'";

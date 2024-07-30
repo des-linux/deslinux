@@ -27,6 +27,7 @@ ConfigFileFormat(){ # Path
 	# Escape '[' to prevent to search file
 	local CONFIG=`cat ${1}`;
 
+
 	local KEY;
 	IFS=$'\n\r';
 	for l in ${CONFIG}; do

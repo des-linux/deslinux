@@ -126,10 +126,20 @@ RunDESLBuilderXInWorld(){
 	ClearEnvVariables '/sbin:/bin';
 	SetEnvVariables;
 
+	# Already run without FSV (Return)
+	[ "${DESLB_DISABLE_FSV:-0}" = '1' ] && {
+		mount -t tmpfs "tmp://DESLBuilder/session/${DESLB_SESSION_ID}" "/tmp" || {
+			error 'Failed to mount tmpfs in /tmp directory.'
+			return ${1};
+		}
+		PATH="${PATH_OLD}" ExecDESLBuilderX "${@}";
+		return ${?};
+	}
+
 	DESLB_RUN_IN_WORLD=1 DESLB_SH=/bin/sh chroot "${DESLB_SESSION_DIR}" /DESLBuilder/DESLBuilder "${@}"
 	local R=${?};
 
-	# Request no fs virtualization
+	# Request no fs virtualization (NO Return)
 	[ "${R}" = '251' ] && {
 		warning 'Restarting DESLBuilder without filesystem virtualization...'
 		mount -t tmpfs "tmp://DESLBuilder/session/${DESLB_SESSION_ID}" "/tmp" || {
@@ -145,6 +155,7 @@ RunDESLBuilderXInWorld(){
 ExecDESLBuilderX(){
 
 	[ "${DESL_BUILDER_X}" = '' ] && SHOW_RESULT_CODE=1;
+	[ ! "${DESLB_SUBPROCESS:-0}" = '0' ] && SHOW_RESULT_CODE=0;
 
 	. ${SCRIPTS_DIR}/DESLBuilderX
 	DESLB_Main "${@}"
@@ -183,7 +194,8 @@ ClearEnvVariables(){
 		IFS=' =';
 		set -- ${e}
 		case ${2} in
-			DESL_BUILDER | BUILDER_ARCH* | TERM | PWD) ;;
+			'') ;;
+			DESL_BUILDER | BOOTSTRAP_ARCH* | TERM | PWD) ;;
 			DESLB_*);;
 #			*_DIR);;
 			PATH ) PATH_OLD="${PATH}";;
@@ -206,7 +218,7 @@ LoadDirectorySettings(){
 	export IMAGE_ROOT_DIR="${ROOT_DIR}/bin";
 	export BUILD_ROOT_DIR="${ROOT_DIR}/build";
 	export TOOLCHAIN_ROOT_DIR="${ROOT_DIR}/toolchain";
-	export BOOTSTRAP_ROOT_PREFIX="${ROOT_DIR}/toolchain/build";
+	export BOOTSTRAP_ROOT_PREFIX="${ROOT_DIR}/toolchain/bootstrap";
 
 	export ETC_DIR="${SCRIPTS_DIR}/etc";
 
@@ -220,9 +232,9 @@ GenerateSessionID(){
 }
 
 SetDirectoryWithArch(){
-	export BOOTSTRAP_DIR="${BOOTSTRAP_ROOT_PREFIX}-${BUILDER_ARCH}/bootstrap-${BUILDER_ARCH}";
+	export BOOTSTRAP_DIR="${BOOTSTRAP_ROOT_PREFIX}-${BOOTSTRAP_ARCH}/core-${BOOTSTRAP_ARCH}";
 
-	export DBSE_DIR="${BOOTSTRAP_ROOT_PREFIX}-${BUILDER_ARCH}/DBSE";
+	export DBSE_DIR="${BOOTSTRAP_ROOT_PREFIX}-${BOOTSTRAP_ARCH}/DBSE";
 	export CORETOOLS_DIR="${DBSE_DIR}/coretools";
 }
 
@@ -256,12 +268,12 @@ DetectBuilderArch(){
 		warning 'DESLBuilder may not be supported by your shell or environment.'
 	}
 
-	export BUILDER_ARCH_ORG=${T1};
-	export BUILDER_ARCH_ORG_T3=${T3}; # Not used: DESLBuilder v2 or later can run under DESLinux only.
-	export BUILDER_ARCH=${T1};
-	case ${BUILDER_ARCH} in
-		i686	) BUILDER_ARCH='x86';;
-		x86_64	) BUILDER_ARCH='x64';;
+	export BOOTSTRAP_ARCH_ORG=${T1};
+	export BOOTSTRAP_ARCH_ORG_T3=${T3}; # Not used: DESLBuilder v2 or later can run under DESLinux only.
+	export BOOTSTRAP_ARCH=${T1};
+	case ${BOOTSTRAP_ARCH} in
+		i686	) BOOTSTRAP_ARCH='x86';;
+		x86_64	) BOOTSTRAP_ARCH='x64';;
 	esac
 
 	return 0;

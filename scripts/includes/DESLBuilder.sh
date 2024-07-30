@@ -53,7 +53,7 @@ BuilderRunScript(){
 BuilderSolveSourceDepends(){
 	local MODE="${1}";
 	for x in `ConfigFileList "${PKG_FILE}" 'BuildDepends_Source'`; do
-		"${DESL_BUILDER}" ${ARGS_RAW_STRING} /M:${MODE} /Package:${x} || return ${?}
+		RunDESLBuilder ${ARGS_RAW_STRING} /M:${MODE} /Package:${x} || return ${?}
 	done
 	return 0;
 }
@@ -81,7 +81,7 @@ BuilderDownload(){
 			return 0;
 		;;
 		http://* | https://* )
-			BuilderRunCommand wget -O "${PKG_ARC_DL}" "${PKG_ARC_URL}" || {
+			BuilderRunCommand wget --no-check-certificate -O "${PKG_ARC_DL}" "${PKG_ARC_URL}" || {
 				error 'Failed to download package file'
 				return 1;
 			}
@@ -123,7 +123,6 @@ BuilderExtract(){
 	mkdir -p "${SHARED_SOURCE_ROOT_DIR}"
 
 	vinfo ' Extracting...'
-
 	case "${Package_Source_BaseURI}" in
 		'' | '-' )
 			vinfo '  No source file required.'

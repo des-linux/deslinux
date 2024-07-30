@@ -11,7 +11,7 @@ export DESL_MAKE="make ${MAKE_OPT}"
 
 DESLBP_GetSharedDirectory(){ # package ID
 	PackageLoad "${1}" "${PACKAGES_DIR}/${1}/DESLPackage.def" GSD || return ${?};
-	echo "${SHARED_SOURCE_ROOT_DIR}/${GSD_Package_Source_RootDir}"
+	SHARED_SOURCE_DIR="${SHARED_SOURCE_ROOT_DIR}/${GSD_Package_Source_RootDir}"
 	return 0;
 }
 
