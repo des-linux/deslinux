@@ -18,7 +18,6 @@
 
 RunDESLBScript(){ # mode
 	local BUILD_MODE="${1}";
-
 	# Enable verbose output (To reduce 'if')
 	[ ! "${DESL_OUTPUT_VERBOSE:-0}" = '0' ] && . "${INCLUDES_DIR}/VerboseOutput_Build.sh"
 
@@ -127,7 +126,8 @@ MakeDLP(){
 		rmdir "${DLP_ROOT_DIR}/share/" 2>/dev/null
 
 		[ "${M}" = '1' ] && {
-			RunDLPI /Create /Dir:"${DLP_ROOT_DIR}" /PackageDef:"${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def" /Platform:${DESL_ARCH} /ID:${DESL_BUILD_PACKAGE} /SaveTo:"${Package_Category}/${Package_ID}-doc_${Package_ID_Suffix}_${DESL_ARCH}.dlp" ${BaseSystem} || return ${?};
+			RunDLPI /Create /Dir:"${DLP_ROOT_DIR}" /PackageDef:"${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def" /Platform:${DESL_ARCH} /ID:${DESL_BUILD_PACKAGE}-doc /SaveTo:"${DLP_DIR}/${Package_Category}/${Package_ID}-doc_${Package_ID_Suffix}_${DESL_ARCH}.dlp" ${BaseSystem} || return ${?};
+
 			rm -rf "${DLP_ROOT_DIR}" || return ${?};
 			mkdir -p "${DLP_ROOT_DIR}" || return ${?};
 		}
@@ -161,7 +161,7 @@ MakeDLP(){
 		rmdir "${DLP_ROOT_DIR}/lib/" 2>/dev/null
 
 		[ "${M}" = '1' ] && {
-			RunDLPI /Create /Dir:"${DLP_ROOT_DIR}" /PackageDef:"${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def" /Platform:${DESL_ARCH} /ID:${DESL_BUILD_PACKAGE} /SaveTo:"${Package_Category}/${Package_ID}-dev_${Package_ID_Suffix}_${DESL_ARCH}.dlp" ${BaseSystem} || return ${?};
+			RunDLPI /Create /Dir:"${DLP_ROOT_DIR}" /PackageDef:"${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def" /Platform:${DESL_ARCH} /ID:${DESL_BUILD_PACKAGE}-dev /SaveTo:"${DLP_DIR}/${Package_Category}/${Package_ID}-dev_${Package_ID_Suffix}_${DESL_ARCH}.dlp" ${BaseSystem} || return ${?};
 			rm -rf "${DLP_ROOT_DIR}" || return ${?};
 			mkdir -p "${DLP_ROOT_DIR}" || return ${?};
 		}
@@ -177,7 +177,7 @@ MakeDLP(){
 	CheckEmptyDir "${DLP_INSTALL_DIR}" && {
 		warning "No main files found to install."
 	} || {
-		RunDLPI /Create /Dir:"${DLP_INSTALL_DIR}" /PackageDef:"${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def" /Platform:${DESL_ARCH} /ID:${DESL_BUILD_PACKAGE} /SaveTo:"${Package_Category}/${Package_ID}_${Package_ID_Suffix}_${DESL_ARCH}.dlp" || return ${?};
+		RunDLPI /Create /Dir:"${DLP_INSTALL_DIR}" /PackageDef:"${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def" /Platform:${DESL_ARCH} /ID:${DESL_BUILD_PACKAGE} /SaveTo:"${DLP_DIR}/${Package_Category}/${Package_ID}_${Package_ID_Suffix}_${DESL_ARCH}.dlp" || return ${?};
 	}
 
 	return 0;

@@ -73,11 +73,13 @@ ParseArgs(){
 	local A KEY VAL;
 	local OFS=${IFS};
 	local IFS=${OFS};
+	local LR=$'\n';
 
 	export ARGS_RAW_STRING="${@}";
 	export ARGS_TARGET='';
 	export ARGS_FIRST_CMD='';
 	export ARGS_FIRST_CMD_EX='';
+	export ARGS_FILE_LIST='';
 
 	for A in "${@}"; do
 		case "${A}" in
@@ -87,6 +89,10 @@ ParseArgs(){
 				V="${A#*:}";
 				eval ARGS_OPT_LONG_${K//-/_}="\"${V}\"";
 				continue;;
+
+			./* | ../* | /*/* | *://* | ~/* )
+				ARGS_FILE_LIST="${ARGS_FILE_LIST:+${ARGS_FILE_LIST}${LR}}${A}";;
+
 			/*)
 				A="${A:1}";
 				eval ARGS_OPT_LONG_${A//-/_}='-';
@@ -127,6 +133,9 @@ ParseArgs(){
 				ParseArgsKeyEncode K
 				eval ARGS_VALUE_${K}="\"${V}\"";
 				continue;;
+
+			*.* | */* )
+				ARGS_FILE_LIST="${ARGS_FILE_LIST:+${ARGS_FILE_LIST} }${A}";;
 
 			*)
 				ParseArgsKeyEncode A "${A//-/_}"

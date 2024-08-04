@@ -3,7 +3,386 @@
 Main(){
 	CheckEnv || return ${?};
 
-	warning DLPM
+	# Private: variables
+	local SELF="${BASH_SOURCE:-${DESLB_SELF_PATH:-${0}}}";
+	SELF=`readlink -f "${SELF}" || echo "${SELF}"`;
+
+	local sRoot="${SELF%/*}";
+	local sName="${SELF##*/}";
+	local DLPI="${sRoot}/dlpi";
+
+	. ${sRoot}/ArgsParser.sh
+	. ${sRoot}/ConfigManager.sh
+
+	ParseArgs "${@}";
+
+	local ROOT_DIR="${ARGS_OPT_LONG_Root:-/usr}/";
+	local DLPI_DIR="${ROOT_DIR}/.dlp/";
+	local DLP_CONFIG="${DLPI_DIR}/dlp.conf";
+	local REP_LIST="${DLPI_DIR}/dlpm.lst";
+	local CERT_DIR="${DLPI_DIR}/certificates/";
+	local CERT_DLP_DIR="${CERT_DIR}/CA/";
+	local CERT_REP_DIR="${CERT_DIR}/repositories/";
+
+	case "${ARGS_TARGET}" in
+		Update )
+			return ${?};;
+
+		Repository )
+			EnterSession DLPMRepository;
+			return ${?};;
+
+		Install )
+			EnterSession DLPMInstall;
+			return ${?};;
+
+		Remove | Uninstall )
+			EnterSession DLPMRemove;
+			return ${?};;
+
+		Reinstall )
+			return ${?};;
+
+		List)
+			EnterSession DLPMList;
+			return ${?};;
+
+		Search )
+			return ${?};;
+
+		MakeDB )
+			EnterSessionEx DLPMMakeDB;
+			return ${?};;
+
+		*)
+			DLPMUsage;
+			return 0;;
+	esac
+}
+
+EnterSession(){
+	[ ! -e "${DLP_CONFIG}" ] && {
+		error $DLP_CONFIG
+		error "Directory '${ROOT_DIR}' is not initialized with dlpi."
+		return 1;
+	}
+	[ ! -e "${REP_LIST}" ] && {
+		touch "${REP_LIST}" || return ${?};
+	}
+	[ ! -e "${CERT_DLP_DIR}" ] && {
+		mkdir -p "${CERT_DLP_DIR}" || return ${?};
+	}
+	[ ! -e "${CERT_REP_DIR}" ] && {
+		mkdir -p "${CERT_REP_DIR}" || return ${?};
+	}
+
+	EnterSessionEx "${@}"
+	return ${?};
+}
+
+EnterSessionEx(){
+	local TMPDIR="/tmp/DLPM_${RANDOM}_${RANDOM}_${RANDOM}_${RANDOM}_${RANDOM}/";
+	mkdir -p "${TMPDIR}" || return ${?};
+
+	info 'Starting DLPM session'
+
+	"${1}" "${TMPDIR}"
+	local R=${?};
+
+	info "DLPM session exited with status code: ${R}"
+
+	rm -rf "${TMPDIR}" || return ${?};
+
+}
+
+DLPMInstall(){
+	ResolveIDList ${ARGS_FILE_LIST}
+}
+
+DLPMRepository(){
+	ConfigLoad "${REP_LIST}" DLPMReps > /dev/null || return ${?};
+
+	case "${ARGS_OPT_LONG_Add:+/A}${ARGS_OPT_LONG_Remove:+/R}${ARGS_OPT_LONG_List:+/L}" in
+		/L | '' )
+			ConfigListWithValue 'DLPMReps::Repositories'
+			return 0;
+		;;
+
+		/A )
+			[ ! "${ARGS_OPT_LONG_Name:+1}:${ARGS_OPT_LONG_URL:+1}" = '1:1' ] && {
+				DLPMUsage Repository;
+				return 1;
+			}
+
+			[ "${ARGS_OPT_LONG_Force:-0}" = '0' ] && {
+				local x;
+				ConfigGet x "DLPMReps::Repositories:${ARGS_OPT_LONG_Name}" ''
+				[ ! "${x}" = '' ] && {
+					error "Repository '${ARGS_OPT_LONG_Name}' is already added."
+					return 1;
+				}
+			}
+			ConfigSet "DLPMReps::Repositories:${ARGS_OPT_LONG_Name}" "${ARGS_OPT_LONG_URL}"
+
+			ConfigSave "${REP_LIST}" DLPMReps || return ${?};
+			return 0;
+		;;
+
+		/R )
+			[ ! "${ARGS_OPT_LONG_Name:+1}" = '1' ] && {
+				DLPMUsage Repository;
+				return 1;
+			}
+
+			[ "${ARGS_OPT_LONG_Force:-0}" = '0' ] && {
+				local x;
+				ConfigGet x "DLPMReps::Repositories:${ARGS_OPT_LONG_Name}" ''
+				[ "${x}" = '' ] && {
+					error "Repository '${ARGS_OPT_LONG_Name}' is not exist."
+					return 1;
+				}
+			}
+			ConfigDelete "DLPMReps::Repositories:${ARGS_OPT_LONG_Name}"
+			rm -f "${CERT_REP_DIR}/${ARGS_OPT_LONG_Name}.cer"
+
+			ConfigSave "${REP_LIST}" DLPMReps || return ${?};
+			return 0;
+		;;
+
+		* )
+			DLPMUsage;
+			return 1;
+		;;
+	esac
+
+	return 1;
+}
+
+DLPMMakeDB(){
+	# ID | Version | Revision | Platform | System| Size | FileName
+	local DB="${ARGS_OPT_LONG_Dir}/DESLPackage.db"
+	local S256="${ARGS_OPT_LONG_Dir}/DESLPackage.sha256"
+	echo '[DB]' > "${DB}" || return ${?};
+	echo 'Version	= 1' >> "${DB}" || return ${?};
+	echo '' >> "${DB}" || return ${?};
+
+
+	echo '[Packages]' >> "${DB}" || return ${?};
+
+	[ "${ARGS_OPT_LONG_SHA256:+1}" = '1' ] && {
+		echo '[SHA256]' > "${S256}" || return ${?};
+	}
+
+ 	local x xx y;
+	local ID PF SYS VER REV SIZE DEP FN;
+	for x in `find "${ARGS_OPT_LONG_Dir}" -name "*.dlp"`; do
+		local xx="${x//${ARGS_OPT_LONG_Dir}/}";
+		info "Reading: '${xx}'..."
+
+		cpio -F "${x}" -H newc -i --to-stdout DESLPackage.def > "${TMPDIR}/DESLPackage.def" 2>/dev/null || {
+			warning "Failed to open DESLPackage.def in '${x}'"
+			continue;
+		}
+
+		ConfigLoad "${TMPDIR}/DESLPackage.def" DLPackage > /dev/null || return ${?};
+		ConfigGet ID 'DLPackage::DLPInstaller:ID' '-'
+		ConfigGet PF 'DLPackage::DLPInstaller:Platform' '-'
+		ConfigGet SYS 'DLPackage::DLPInstaller:System' '-'
+		ConfigGet VER 'DLPackage::DESLPackage:Version' '0'
+		ConfigGet REV 'DLPackage::DESLPackage:Revision' '0'
+		ConfigGet SIZE 'DLPackage::Data:Size' '0'
+
+		local Depends=`ConfigFileList "${TMPDIR}/DESLPackage.def" 'Depends'`;
+		local RuntimeDepends=`ConfigFileList "${TMPDIR}/DESLPackage.def" 'RuntimeDepends'`;
+		local DEP='';
+		for y in ${Depends} ${RuntimeDepends}; do
+			DEP="${DEP:+${DEP},}${y}";
+		done
+
+		[ "${ARGS_OPT_LONG_SHA256:+1}" = '1' ] && {
+			info " Calculating SHA256..."
+			local SHA256=`cat ${x} | sha256sum`;
+			set -- ${SHA256}
+			SHA256="${1}";
+			echo "${xx##/}|${SHA256}" >> "${S256}" || return ${?};
+		}
+
+		echo "${ID}|${PF}|${SYS}|${VER}|${REV}|${SIZE}|${DEP}|${xx##/}" >> "${DB}" || return ${?};
+	done
+
+	[ "${ARGS_OPT_LONG_SHA256:+1}" = '1' ] && {
+		info " Calculating SHA256 of Database..."
+		local SHA256=`cat ${DB} | sha256sum`;
+		set -- ${SHA256}
+		SHA256="${1}";
+		echo "DESLPackage.db|${SHA256}" >> "${S256}" || return ${?};
+	}
+
+
+	cat "${DB}"
+	cat "${S256}"
+	return 0;
+}
+
+InitResolveList(){
+	# Return val: NOT local.
+	DLPM_RESOLVED_FILE='';
+	DLPM_RESOLVED_DEPENDS='';
+
+	for x in `set | grep DLPM__DEP_`; do
+		unset ${x}
+	done
+	return 0;
+}
+
+AddResolveListFromFile(){ # PackagePath
+	local x="${1}";
+	local LR=$'\n';
+	local y yy ID R;
+
+	[ ! -e "${x}" ] && {
+		error "File '${x}' is not found."
+		return 1;
+	}
+
+	DLPM_RESOLVED_FILE="${DLPM_RESOLVED_FILE}${LR}file://${1}";
+
+	[ "${DLPM_NO_SOLVE_DEPENDS}" = '1' ] && return 0;
+	cpio -F "${x}" -H newc -i --to-stdout DESLPackage.def > "${TMPDIR}/DESLPackage.def" 2>/dev/null || {
+		error "Failed to open DESLPackage.def in '${x}'"
+		return 1;
+	}
+
+	ConfigLoad "${TMPDIR}/DESLPackage.def" DLPackage > /dev/null || return ${?};
+	ConfigGet ID DLPackage::DLPInstaller:ID
+	ID="${ID//\//_____}";
+	ID="${ID//-/___}";
+
+	local Depends=`ConfigFileList "${TMPDIR}/DESLPackage.def" 'Depends'`;
+	local RuntimeDepends=`ConfigFileList "${TMPDIR}/DESLPackage.def" 'RuntimeDepends'`;
+	for y in ${Depends} ${RuntimeDepends}; do
+		yy="${y//\//_____}";
+		yy="${yy//-/___}";
+
+		eval R="\${DLPM__DEP_ID_ADDED_${yy}}";
+		[ ! "${R}" = '1' ] && {
+			DLPM_RESOLVED_DEPENDS="${DLPM_RESOLVED_DEPENDS:+${DLPM_RESOLVED_DEPENDS}${LR}}${y}";
+			eval DLPM__DEP_ID_ADDED_${yy}=1;
+		}
+	done
+
+	eval DLPM__DEP_ID_SOLVED_${ID}=1;
+
+	return 0;
+}
+
+ResolveIDList(){ # ENV:DLPM_NO_SOLVE_DEPENDS=1
+	InitResolveList;
+
+	local x;
+
+	for x in "${@}"; do
+		case ${x} in
+			http://* | https://* | ftp://* )
+				local F="/tmp/remote_${RANDOM}_${RANDOM}_${RANDOM}_${RANDOM}_${RANDOM}.dlp";
+
+				wget -O "${F}" "${x}" || {
+					error 'Failed to download '${x}' .'
+					return 1;
+				}
+				AddResolveListFromFile "${x}" || return ${?};
+			;;
+
+			file://* )
+				x="${x:7}";
+				AddResolveListFromFile "${x}" || return ${?};
+			;;
+
+			*://* )
+				error "Unsupported protocol '${x%%://*}' specified."
+				return 1;
+			;;
+
+			./* | ../* | /*/* | ~/* | *.* )
+				AddResolveListFromFile "${x}" || return ${?};
+			;;
+
+			*/* | * )
+				[ -e "${x}" ] && {
+					AddResolveListFromFile "${x}" || return ${?};
+					continue;
+				}
+
+				FindDB "${x}" && {
+					error FOUND: $DBFOUND_FILE
+					error FOUND: $DBFOUND_DEPENDS
+				} || {
+					error "Package '${x}' is not found in local database."
+					error 'Use `dlpm /Update` to synchronize database with repositories.'
+					return 1;
+				}
+			;;
+		esac
+	done
+
+echo "
+RESOLVED:
+$DLPM_RESOLVED_FILE
+
+DEPENDS:
+$DLPM_RESOLVED_DEPENDS
+
+PROCED:
+"
+set | grep -e DLPM__DEP_ID_SOL
+
+	return 0;
+}
+
+FindDB(){ # 1 ID
+	local ID="${1}";
+	local IFS;
+	local OFS="${IFS}";
+
+	# Not local
+	DBFOUND_FILE='';
+	DBFOUND_DEPENDS='';
+
+	[ ! "${DLPM_FINDDB_INIT:-0}" = '1' ] && {
+		ConfigLoad "${REP_LIST}" DLPMReps > /dev/null || return ${?};
+		ConfigLoad "${DLP_CONFIG}" DLPConfig > /dev/null || return ${?};
+		local PF_ROOT SYS_ROOT;
+		ConfigGet PF_ROOT 'DLPConfig::DLP:Platform'
+		ConfigGet SYS_ROOT 'DLPConfig::DLP:System'
+		DLPM_FINDDB_INIT=1
+	}
+
+	local x y P;
+	for x in `ConfigListWithValue DLPMReps::Repositories`; do
+		P="${x#*=}";
+		case "${P}" in
+			*://* )
+				error Remotely access ${P}
+			;;
+
+			* )
+				error Directly access "${P}/DESLPackage.db"
+				for y in `cat "${P}/DESLPackage.db" | grep -e "${ID}|${PF_ROOT}|${SYS_ROOT}|" | sort -r -V -k2,3 -t '|'`; do
+					IFS='|';
+					set -- ${y}
+					IFS="${OFS}";
+					[ "${ID}::${PF_ROOT}::${SYS_ROOT}" = "${1}::${2}::${3}" ] && {
+						DBFOUND_FILE="${P}/${8}";
+						DBFOUND_DEPENDS="${7}";
+						return 0;
+					}
+				done
+			;;
+
+		esac
+	done
+
+	return 1;
 }
 
 error(){

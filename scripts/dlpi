@@ -13,22 +13,33 @@ Main(){
 	. ${sRoot}/ArgsParser.sh
 	. ${sRoot}/ConfigManager.sh
 
-
 	ParseArgs "${@}";
+
+	local ROOT_DIR="${ARGS_OPT_LONG_Root:-/usr}/";
+	local DLPI_DIR="${ROOT_DIR}/.dlp/";
+
 	case "${ARGS_TARGET}" in
 		Install )
 			EnterSession DLPIInstall;
 			return ${?};;
-		Check ) ;;
+		Check )
+			EnterSession DLPICheck;
+			return ${?};;
+
 		Remove | Uninstall )
 			EnterSession DLPIRemove;
 			return ${?};;
-		List) ;;
+		List)
+			EnterSession DLPIList;
+			return ${?};;
 		Extract )
 			EnterSession DLPIExtract;
 			return ${?};;
 		Initialize )
 			EnterSession DLPIInitialize;
+			return ${?};;
+		Cleanup )
+			EnterSession DLPICleanup;
 			return ${?};;
 		Create )
 			EnterSession DLPICreate;
@@ -44,25 +55,26 @@ EnterSession(){
 	mkdir -p "${TMPDIR}" || return ${?};
 
 	info 'Starting DLPI session'
+
 	"${1}" "${TMPDIR}"
 	local R=${?};
+
 	info "DLPI session exited with status code: ${R}"
 
 	rm -rf "${TMPDIR}" || return ${?};
 	return ${R};
 }
 
-# /List /Installed or /File:<DLP>
-# /Check /Installed or /File:
+DLPIInstall(){ # /Install /File:<DLP Path> [/Root:<DLP Root>]
+		# [/SkipVerify] [/Force]
+		# [/IgnorePlatform] [/IgnoreSystem] [/IgnoreDepends] [/IgnoreConflict] [/IgnoreFreeSpace]
+	DLPICleanup
 
-DLPIInstall(){ # /Install /File:<DLP Path> [/Root:<DLP Root>] [/Force] [/IgnorePlatform] [/IgnoreSystem] [/IgnoreDepends] [/IgnoreConflict]
 	[ ! "${ARGS_OPT_LONG_File+1}" = '1' ] && {
 		DLPIUsage
 		return 1;
 	}
 
-	local ROOT_DIR="${ARGS_OPT_LONG_Root:-/usr}/";
-	local DLPI_DIR="${ROOT_DIR}/.dlpi/";
 	local DLP_CONFIG="${DLPI_DIR}/dlp.conf";
 	[ ! -e "${DLP_CONFIG}" ] && {
 		error "Directory '${ROOT_DIR}' is not initialized with dlpi."
@@ -89,26 +101,39 @@ DLPIInstall(){ # /Install /File:<DLP Path> [/Root:<DLP Root>] [/Force] [/IgnoreP
 
 
 	[ -e "${DLPI_DIR}/installed/${ID//\//_____}.dlpi" ] && {
+		[ "${ARGS_OPT_LONG_Force:+1}" = '1' ] && return 0;
+
 		error "Package '${ID}' is already installed."
 		return 1;
 	}
 
-	[ "${ARGS_OPT_LONG_Force}${ARGS_OPT_LONG_IgnorePlatform}" = '' ] && {
+	[ "${ARGS_OPT_LONG_IgnorePlatform}" = '' ] && {
 		[ ! "${Platform_Root}" = "${Platform_Package}" ] && {
 			error "Package platform '${Platform_Package}' is not for this system '${Platform_Root}'";
 			return 2;
 		}
 	}
-	[ "${ARGS_OPT_LONG_Force}${ARGS_OPT_LONG_IgnoreSystem}" = '' ] && {
+	[ "${ARGS_OPT_LONG_IgnoreSystem}" = '' ] && {
 		[ ! "${BaseSystem_Root}" = "${BaseSystem_Pacakge}" ] && {
 			error "Package target system '${BaseSystem_Pacakge}' is not for this system '${BaseSystem_Root}'";
 			return 2;
 		}
 	}
 
-	[ "${ARGS_OPT_LONG_Force}${ARGS_OPT_LONG_IgnoreDepends}" = '' ] && {
+	[ "${ARGS_OPT_LONG_IgnoreFreeSpace}" = '' ] && {
+		local Free Size;
+		ConfigGet Size 'DLPackage::Data:Size' 0
+		set -- `df -m "${ROOT_DIR}"`
+		Free="${11}";
+		local Remain="$((Free-(Size/1048576)))";
+		[ "${Remain:0:1}" = '-' ] && {
+			error "Not enough space on '${ROOT_DIR}'. (Required = $((Size/1048576)) MB, Free = ${Free} MB)"
+			return 3;
+		}
+	}
+
+	[ "${ARGS_OPT_LONG_IgnoreDepends}" = '' ] && {
 		info 'Checking dependency...'
-		local Depends RuntimeDepends;
 		local Depends=`ConfigFileList "${TMPDIR}/DESLPackage.def" 'Depends'`;
 		local RuntimeDepends=`ConfigFileList "${TMPDIR}/DESLPackage.def" 'RuntimeDepends'`;
 		CheckDepends "${DLPI_DIR}" "${Depends} ${RuntimeDepends}" || return ${?};
@@ -116,6 +141,25 @@ DLPIInstall(){ # /Install /File:<DLP Path> [/Root:<DLP Root>] [/Force] [/IgnoreP
 
 	info 'Loading file list...'
 	local FILE_LIST=`DLPI_LIST_ONLY=1 DLPIExtract`;
+
+	[ "${ARGS_OPT_LONG_IgnoreConflict}" = '' ] && {
+		info 'Checking installed files...'
+		local x;
+		local ERR=0;
+		for x in ${FILE_LIST}; do
+			[ ! -d "${ROOT_DIR}/${x}" ] && {
+				[ -e "${ROOT_DIR}/${x}" ] && {
+					error "Conflict: '${x}'"
+					ERR=1;
+				}
+			}
+		done
+		[ "${ERR}" = '1' ] && {
+			error 'Some files are conflicted with other packages	'
+			error '/IgnoreConflict to skip this check and will overwrite files.'
+			return 1;
+		}
+	}
 
 	info 'Installing...'
 	mkdir -p "${DLPI_DIR}/installed/" || return ${?};
@@ -125,19 +169,33 @@ DLPIInstall(){ # /Install /File:<DLP Path> [/Root:<DLP Root>] [/Force] [/IgnoreP
 
 	ARGS_OPT_LONG_Dir="${ROOT_DIR}" ARGS_OPT_LONG_Verbose=1 DLPIExtract || return ${?};
 
+	sync
+
+	[ "${ARGS_OPT_LONG_SkipVerify}" = '' ] && {
+		info 'Checking files...'
+		local x;
+		for x in ${FILE_LIST}; do
+			[ ! -e "${ROOT_DIR}/${x}" ] && {
+				error "File '${x}' is not installed correctly."
+				DLPICleanup
+				return 1;
+			}
+		done
+	}
+
 	mv "${DLPI_DIR}/installed/session.dlpi" "${DLPI_DIR}/installed/${ID//\//_____}.dlpi" || return ${?};
 
 	return 0;
 }
 
-DLPIRemove(){ # /Remove /ID:<DLP ID> [/Root:<DLP Root>]
+DLPIRemove(){ # /Remove /ID:<DLP ID> [/Root:<DLP Root>] [/Force]
+	NOCLEANUP=1 DLPICleanup
+
 	[ ! "${ARGS_OPT_LONG_ID+1}" = '1' ] && {
 		DLPIUsage
 		return 1;
 	}
 
-	local ROOT_DIR="${ARGS_OPT_LONG_Root:-/usr}/";
-	local DLPI_DIR="${ROOT_DIR}/.dlpi/";
 	local DLP_CONFIG="${DLPI_DIR}/dlp.conf";
 	[ ! -e "${DLP_CONFIG}" ] && {
 		error "Directory '${ROOT_DIR}' is not initialized with dlpi."
@@ -147,6 +205,7 @@ DLPIRemove(){ # /Remove /ID:<DLP ID> [/Root:<DLP Root>]
 	local ID="${ARGS_OPT_LONG_ID}";
 	local DLPI_FILE="${DLPI_DIR}/installed/${ID//\//_____}.dlpi";
 	[ ! -e "${DLPI_FILE}" ] && {
+		[ "${ARGS_OPT_LONG_Force:+1}" = '1' ] && return 0;
 		error "Package '${ID}' is not installed."
 		return 1;
 	}
@@ -189,8 +248,8 @@ DLPIInitialize(){ # /Initialize /Root:<DLP Root> /Platform:<Arch> [/System:<Syst
 		return 1;
 	}
 
-	local DLP_CONFIG="${ARGS_OPT_LONG_Root}/.dlpi/dlp.conf";
-	mkdir -p "${ARGS_OPT_LONG_Root}/.dlpi"
+	local DLP_CONFIG="${ARGS_OPT_LONG_Root}/.dlp/dlp.conf";
+	mkdir -p "${ARGS_OPT_LONG_Root}/.dlp"
 	echo '[DLP]' > "${DLP_CONFIG}"
 	echo "Platform	= ${ARGS_OPT_LONG_Platform}" >> "${DLP_CONFIG}"
 	echo "System	= ${ARGS_OPT_LONG_System:-DESLinux}" >> "${DLP_CONFIG}"
@@ -263,6 +322,82 @@ DLPIExtract(){ # /Extract /File:<DLP Path> [/Dir:<Extract to>]  [/Verbose, /v] [
 	return ${?};
 }
 
+DLPIList(){ # /List /Installed or /File:<DLP>
+	[ "${ARGS_OPT_LONG_File:+1}" ] && {
+		DLPI_LIST_ONLY=1 DLPIExtract;
+		return ${?};
+	}
+
+	[ "${ARGS_OPT_LONG_Installed:+1}" ] && {
+		DLPIList_Installed;
+		return ${?};
+	}
+
+	DLPI_List_Installed
+	return ${?};
+}
+
+DLPIList_Installed(){
+	local DLP_CONFIG="${DLPI_DIR}/dlp.conf";
+	[ ! -e "${DLP_CONFIG}" ] && {
+		error "Directory '${ROOT_DIR}' is not initialized with dlpi."
+		return 1;
+	}
+
+	local x;
+	for x in ${DLPI_DIR}/installed/*.dlpi; do
+		x="${x//${DLPI_DIR}\/installed\//}";
+		x="${x//_____/\/}";
+		echo "${x%.dlpi}"
+	done
+	return 0;
+}
+
+DLPICheck(){ # /Check /Installed or /File:<DLP>
+	[ "${ARGS_OPT_LONG_ID:-0}:${ARGS_OPT_LONG_File+1}" = '0:1' ] && {
+		DLPIGetIDFromDLP || return ${?};
+	}
+
+	[ ! "${ARGS_OPT_LONG_ID+1}" = '1' ] && {
+		DLPIUsage
+		return 2;
+	}
+
+	local DLP_CONFIG="${DLPI_DIR}/dlp.conf";
+	[ ! -e "${DLP_CONFIG}" ] && {
+		error "Directory '${ROOT_DIR}' is not initialized with dlpi."
+		return 2;
+	}
+
+	local ID="${ARGS_OPT_LONG_ID}";
+	local DLPI_FILE="${DLPI_DIR}/installed/${ID//\//_____}.dlpi";
+	[ ! -e "${DLPI_FILE}" ] && {
+		info "Package '${ID}' is not installed."
+		return 1;
+	}
+	info "Package '${ID}' is already installed."
+	return 0;
+}
+
+DLPICleanup(){
+	[ "${NOCLEANUP:+1}" = '1' ] && return 0;
+	[ ! -e "${DLPI_DIR}/installed/session.dlpi" ] && return 0;
+
+	warning Cleaning up previous session...
+
+	ARGS_OPT_LONG_ID='session' DLPIRemove
+
+	return 0;
+}
+
+DLPIGetIDFromDLP(){
+	cpio -F "${ARGS_OPT_LONG_File}" -H newc -i --to-stdout DESLPackage.def > "${TMPDIR}/DESLPackage.def" 2>/dev/null || return ${?};
+	ConfigLoad "${TMPDIR}/DESLPackage.def" DLPackage > /dev/null || return ${?};
+	local ID ;
+	ConfigGet ID 'DLPackage::DLPInstaller:ID'
+	ARGS_OPT_LONG_ID="${ID}";
+	return 0;
+}
 
 DLPICreate(){ # /Craete /Dir:<Root> /PackageDef:<DESLPackage.def> /Platform:<Arch> /ID:<ID> /SaveTo:<dlp>
 		# [/System:<SystemName>] [/Archive:<type>] [/Compress:<type>] [Type:<arc.comp>]
@@ -295,8 +430,7 @@ DLPICreate(){ # /Craete /Dir:<Root> /PackageDef:<DESLPackage.def> /Platform:<Arc
 	TypeA="${ARGS_OPT_LONG_Archive:-${TypeA:-dla}}";
 	TypeC="${ARGS_OPT_LONG_Compress:-${TypeC:-gz}}";
 
-	local CompApp;
-	local DLP_DATAFILE;
+	local CompApp DLP_DATAFILE;
 	case "${TypeC}" in
 		'' | '-' | 'none' ) TypeC='-'; CompApp='cat'; DLP_DATAFILE='';;
 		'gz' | 'gzip' ) TypeC='gz'; CompApp='gzip'; DLP_DATAFILE='.gz';;
@@ -305,6 +439,10 @@ DLPICreate(){ # /Craete /Dir:<Root> /PackageDef:<DESLPackage.def> /Platform:<Arc
 			error "Unsupported compression type '${TypeC}' specified."
 			return 1;;
 	esac
+
+	set -- `du -bs "${ARGS_OPT_LONG_Dir}"`
+	local Size="${1}";
+	Size=$((Size));
 
 	info 'Creating install archive...'
 	case "${TypeA}" in
@@ -358,6 +496,7 @@ AddDESLPackageDef(){ # Base.def
 	echo '[Data]'
 	echo "Archive	= ${TypeA}"
 	echo "Compress	= ${TypeC}"
+	echo "Size	= ${Size}"
 	echo ''
 	return 0;
 }
