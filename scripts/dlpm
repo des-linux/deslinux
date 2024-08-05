@@ -20,6 +20,8 @@ Main(){
 	local DLPI_DIR="${ROOT_DIR}/.dlp/";
 	local DLP_CONFIG="${DLPI_DIR}/dlp.conf";
 	local REP_LIST="${DLPI_DIR}/dlpm.lst";
+	local REP_DIR="${DLPI_DIR}/repositories/";
+
 	local CERT_DIR="${DLPI_DIR}/certificates/";
 	local CERT_DLP_DIR="${CERT_DIR}/CA/";
 	local CERT_REP_DIR="${CERT_DIR}/repositories/";
@@ -76,6 +78,10 @@ EnterSession(){
 		mkdir -p "${CERT_REP_DIR}" || return ${?};
 	}
 
+	ConfigLoad "${DLP_CONFIG}" DLPConfig > /dev/null
+	ConfigGet PF_ROOT 'DLPConfig::DLP:Platform' '-'
+	ConfigGet SYS_ROOT 'DLPConfig::DLP:System' '-'
+
 	EnterSessionEx "${@}"
 	return ${?};
 }
@@ -96,7 +102,61 @@ EnterSessionEx(){
 }
 
 DLPMInstall(){
-	ResolveIDList ${ARGS_FILE_LIST}
+	local x;
+	local LF=$'\n';
+
+	ResolveFileArgs ${ARGS_FILE_LIST} || return ${?};
+	ResolveDepends || return ${?};
+
+echo "
+Resolved Files path:
+$DLPM_RESOLVED_FILES
+
+Depends by above files:
+$DLPM_DEPENDS_LIST
+
+Total Size:
+$DLPM_DEPENDS_SIZE
+
+Locally opened IDS:"
+set | grep -e DLPM__DEP_ID_LOCAL_RESOLVED_
+
+	[ "${ARGS_OPT_LONG_IgnoreCapacity}" = '' ] && {
+		local Free;
+		set -- `df -m "${ROOT_DIR}"`
+		Free="${11}";
+		local Remain="$((Free-(DLPM_DEPENDS_SIZE/1048576)))";
+		[ "${Remain:0:1}" = '-' ] && {
+			error "Not enough space on '${ROOT_DIR}'. (Required = $((DLPM_DEPENDS_SIZE/1048576)) MB, Free = ${Free} MB)"
+			return 3;
+		}
+	}
+
+	local INSTALL_FILES='';
+
+	info 'Downloading packages...'
+	for x in ${DLPM_RESOLVED_FILES}; do
+		case "${x}" in
+			file://* ) INSTALL_FILES="${INSTALL_FILES}${LF}${x:7}";;
+			dlpm::file://* ) INSTALL_FILES="${INSTALL_FILES}${LF}${x:13}";;
+			dlpm::*://* )
+				info DL:$x;;
+			* )
+				error "Unknown '${x}'"
+				return 1;
+		esac
+
+	done
+
+	echo "INSTALL FILES: $INSTALL_FILES"
+	info 'Installing packages...'
+	for x in ${INSTALL_FILES}; do
+		info " ${x}..."
+		"${sRoot}/dlpi" /Install /Root:"${ROOT_DIR}" /File:"${x}" /IgnoreDepends /IgnoreCapacity /IgnoreSystem /IgnorePlatform
+	done
+
+
+	return 0;
 }
 
 DLPMRepository(){
@@ -226,8 +286,9 @@ DLPMMakeDB(){
 
 InitResolveList(){
 	# Return val: NOT local.
-	DLPM_RESOLVED_FILE='';
-	DLPM_RESOLVED_DEPENDS='';
+	DLPM_RESOLVED_FILES='';
+	DLPM_DEPENDS_LIST='';
+	DLPM_DEPENDS_SIZE=0;
 
 	for x in `set | grep DLPM__DEP_`; do
 		unset ${x}
@@ -235,19 +296,22 @@ InitResolveList(){
 	return 0;
 }
 
-AddResolveListFromFile(){ # PackagePath
+AddResolveListFromFile(){ # PackagePath # ENV: DLPM_NO_SOLVE_DEPENDS
 	local x="${1}";
-	local LR=$'\n';
-	local y yy ID R;
+	local LF=$'\n';
+	local y ID PF SYS SIZE;
 
 	[ ! -e "${x}" ] && {
 		error "File '${x}' is not found."
 		return 1;
 	}
 
-	DLPM_RESOLVED_FILE="${DLPM_RESOLVED_FILE}${LR}file://${1}";
+	x=`readlink -f "${x}" 2>/dev/null || echo "${x}"`;
+
+	DLPM_RESOLVED_FILES="${DLPM_RESOLVED_FILES}${LF}file://${x}";
 
 	[ "${DLPM_NO_SOLVE_DEPENDS}" = '1' ] && return 0;
+
 	cpio -F "${x}" -H newc -i --to-stdout DESLPackage.def > "${TMPDIR}/DESLPackage.def" 2>/dev/null || {
 		error "Failed to open DESLPackage.def in '${x}'"
 		return 1;
@@ -258,25 +322,42 @@ AddResolveListFromFile(){ # PackagePath
 	ID="${ID//\//_____}";
 	ID="${ID//-/___}";
 
+	ConfigGet PF DLPackage::DLPInstaller:Platform
+	ConfigGet SYS DLPackage::DLPInstaller:System
+
+	ConfigGet SIZE DLPackage::Data:Size 0
+	DLPM_DEPENDS_SIZE=$((DLPM_DEPENDS_SIZE+SIZE));
+
 	local Depends=`ConfigFileList "${TMPDIR}/DESLPackage.def" 'Depends'`;
 	local RuntimeDepends=`ConfigFileList "${TMPDIR}/DESLPackage.def" 'RuntimeDepends'`;
 	for y in ${Depends} ${RuntimeDepends}; do
-		yy="${y//\//_____}";
-		yy="${yy//-/___}";
-
-		eval R="\${DLPM__DEP_ID_ADDED_${yy}}";
-		[ ! "${R}" = '1' ] && {
-			DLPM_RESOLVED_DEPENDS="${DLPM_RESOLVED_DEPENDS:+${DLPM_RESOLVED_DEPENDS}${LR}}${y}";
-			eval DLPM__DEP_ID_ADDED_${yy}=1;
-		}
+		AddDependsList "${y}"
 	done
 
-	eval DLPM__DEP_ID_SOLVED_${ID}=1;
+	eval DLPM__DEP_ID_LOCAL_RESOLVED_${ID}=1;
 
 	return 0;
 }
 
-ResolveIDList(){ # ENV:DLPM_NO_SOLVE_DEPENDS=1
+AddDependsList(){ # ID to add
+	local R IDX;
+	local ID="${1}";
+	local LF=$'\n';
+
+	IDX="${ID//\//_____}";
+	IDX="${IDX//-/___}";
+
+	eval R="\${DLPM__DEP_ID_ADDED_${IDX}}";
+	[ ! "${R}" = '1' ] && {
+		DLPM_DEPENDS_LIST="${DLPM_DEPENDS_LIST:+${DLPM_DEPENDS_LIST}${LF}}${ID}";
+		eval DLPM__DEP_ID_ADDED_${IDX}=1;
+		return 0;
+	}
+
+	return 1;
+}
+
+ResolveFileArgs(){
 	InitResolveList;
 
 	local x;
@@ -313,73 +394,148 @@ ResolveIDList(){ # ENV:DLPM_NO_SOLVE_DEPENDS=1
 					continue;
 				}
 
-				FindDB "${x}" && {
-					error FOUND: $DBFOUND_FILE
-					error FOUND: $DBFOUND_DEPENDS
-				} || {
-					error "Package '${x}' is not found in local database."
-					error 'Use `dlpm /Update` to synchronize database with repositories.'
-					return 1;
-				}
+				AddDependsList "${x}"
+
+				continue;
 			;;
 		esac
 	done
 
-echo "
-RESOLVED:
-$DLPM_RESOLVED_FILE
+	return 0;
+}
 
-DEPENDS:
-$DLPM_RESOLVED_DEPENDS
+ResolveDepends(){
+	local x;
+	local LF=$'\n';
+	local IDX;
+	local DepAdded=1;
+	local RPass=0;
 
-PROCED:
-"
-set | grep -e DLPM__DEP_ID_SOL
+	while [ "${DepAdded:-0}" = '1' ]; do
+		RPass=$((RPass+1));
+		[ "$((RPass))" = '64' ] && {
+			error "Too many dependency level"
+			return 1;
+		}
 
+		DepAdded=0;
+		local DEPLIST="${DLPM_DEPENDS_LIST}";
+		DLPM_DEPENDS_LIST='';
+
+		for x in ${DEPLIST}; do
+			FindLocal ${x} && { # Already resolved by local packages
+				continue
+			}
+
+			FindDB ${x} || {
+				[ "${ARGS_OPT_LONG_IgnoreDepends}" = '' ] && {
+					error "Package '${x}' not found."
+					return 1;
+				}
+
+				warning "Package '${x}' not found."
+				continue;
+			}
+
+			IDX="${x//\//_____}";
+			IDX="${IDX//-/___}";
+
+			eval DLPM__DEP_ID_LOCAL_RESOLVED_${IDX}=1;
+			DLPM_RESOLVED_FILES="${DLPM_RESOLVED_FILES}${LF}dlpm::${DBFOUND_FILE}";
+			DLPM_DEPENDS_SIZE=$((DLPM_DEPENDS_SIZE+DBFOUND_SIZE));
+
+			for y in ${DBFOUND_DEPENDS}; do
+				AddDependsList "${y}"
+				DepAdded=1;
+			done
+		done
+
+	done
+
+	return 0;
+}
+
+FindLocal(){
+	local R IDX;
+	local ID="${1}";
+
+	IDX="${ID//\//_____}";
+	IDX="${IDX//-/___}";
+
+	eval R="\${DLPM__DEP_ID_LOCAL_RESOLVED_${IDX}}";
+	[ ! "${R}" = '1' ] && {
+		return 1;
+	}
 	return 0;
 }
 
 FindDB(){ # 1 ID
 	local ID="${1}";
 	local IFS;
+	local LF=$'\n';
 	local OFS="${IFS}";
 
 	# Not local
 	DBFOUND_FILE='';
 	DBFOUND_DEPENDS='';
+	DBFOUND_SIZE=0;
+
+	[ ! "${ARGS_OPT_LONG_Local:-0}" = '0' ] && {
+		info "Local only mode specified. Remote repositories are ignored."
+		return 1;
+	}
 
 	[ ! "${DLPM_FINDDB_INIT:-0}" = '1' ] && {
 		ConfigLoad "${REP_LIST}" DLPMReps > /dev/null || return ${?};
-		ConfigLoad "${DLP_CONFIG}" DLPConfig > /dev/null || return ${?};
-		local PF_ROOT SYS_ROOT;
-		ConfigGet PF_ROOT 'DLPConfig::DLP:Platform'
-		ConfigGet SYS_ROOT 'DLPConfig::DLP:System'
 		DLPM_FINDDB_INIT=1
 	}
 
-	local x y P;
+	local x y P DB;
 	for x in `ConfigListWithValue DLPMReps::Repositories`; do
+		N="${x%%=*}";
 		P="${x#*=}";
 		case "${P}" in
-			*://* )
-				error Remotely access ${P}
+			http://* | https://* | ftp://* )
+				DB="${REP_DIR}/${N}.db";
+				[ ! -e "${DB}" ] && {
+					warning "Package database for '${N}' is not synced. Use dlpm /Update to sync."
+					continue
+				}
 			;;
 
+			file://* )
+				DB="${P:7}/DESLPackage.db";
+			;;
+
+			*://* )
+				warning "Ignore repository '${N}': Unsupported protcol '${P%%://*}' specified. "
+				continue;;
+
 			* )
-				error Directly access "${P}/DESLPackage.db"
-				for y in `cat "${P}/DESLPackage.db" | grep -e "${ID}|${PF_ROOT}|${SYS_ROOT}|" | sort -r -V -k2,3 -t '|'`; do
-					IFS='|';
-					set -- ${y}
-					IFS="${OFS}";
-					[ "${ID}::${PF_ROOT}::${SYS_ROOT}" = "${1}::${2}::${3}" ] && {
-						DBFOUND_FILE="${P}/${8}";
-						DBFOUND_DEPENDS="${7}";
-						return 0;
-					}
-				done
+				DB="${P}/DESLPackage.db";
+				P="file://${P}";
 			;;
 
 		esac
+
+		[ ! -e "${DB}" ] && {
+			warning "Package database '${DB}' is not found."
+			continue
+		}
+
+		for y in `cat "${DB}" | grep -e "${ID}|${PF_ROOT}|${SYS_ROOT}|" | sort -r -V -k2,3 -t '|'`; do
+			IFS='|';
+			set -- ${y}
+			IFS="${OFS}";
+
+			[ "${ID}::${PF_ROOT}::${SYS_ROOT}" = "${1}::${2}::${3}" ] && {
+				DBFOUND_FILE="${P}/${8}";
+				DBFOUND_DEPENDS="${7//,/${LF}}";
+				DBFOUND_SIZE="${6}";
+				return 0;
+			}
+		done
+
 	done
 
 	return 1;

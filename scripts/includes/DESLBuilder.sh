@@ -43,18 +43,34 @@ BuilderInitialize(){
 }
 
 BuilderRunScript(){
-	infoex "${DESL_BUILD_PACKAGE}"
+	BuilderInitialize
+
+	BuilderSolveLibraryDepends || return ${?};
 
 	BuilderRunScriptEx unshare -m "${DESLB_SH}" "${SCRIPTS_DIR}/ExecBuildScript" "${@}" || return ${?};
 	return ${?};
 }
 
-
 BuilderSolveSourceDepends(){
+	local x;
 	local MODE="${1}";
-	for x in `ConfigFileList "${PKG_FILE}" 'BuildDepends_Source'`; do
+	for x in `ConfigFileList "${PKG_FILE}" 'BuildDepends_SourceOnly'`; do
 		RunDESLBuilder ${ARGS_RAW_STRING} /M:${MODE} /Package:${x} || return ${?}
 	done
+	return 0;
+}
+
+BuilderSolveLibraryDepends(){
+	local x;
+
+	for x in `ConfigFileList "${PKG_FILE}" 'BuildDepends_Library'`; do
+		vinfo "Checking install status..."
+		export | grep DIR
+		RunScript "${SCRIPTS_DIR}/dlpi" /Check /Root:${TOOLCHAIN_USR_DIR} /ID:${x} > /dev/null
+
+		error RunDESLBuilder ${ARGS_RAW_STRING} /M:/Build /Package:${x} || return ${?}
+	done
+	return 2;
 	return 0;
 }
 

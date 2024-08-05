@@ -1,7 +1,7 @@
 
 BuilderSolveSourceDepends(){
 	local MODE="${1}";
-	for x in `ConfigFileList "${PKG_FILE}" 'BuildDepends_Source'`; do
+	for x in `ConfigFileList "${PKG_FILE}" 'BuildDepends_SourceOnly'`; do
 		"${DESL_BUILDER}" ${ARGS_RAW_STRING} /M:${MODE} /Package:${x} || return ${?}
 	done
 	return 0;

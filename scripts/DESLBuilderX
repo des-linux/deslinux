@@ -166,7 +166,8 @@ ExportDirsPath(){
 	export BUILD_DIR_BOOTSTRAP="${BUILD_ROOT_DIR}/bootstrap-${BOOTSTRAP_ARCH}/builder-${BUILDER_ARCH}";
 	export SHARED_SOURCE_ROOT_DIR="${BUILD_ROOT_DIR}/shared";
 
-	export BOOTSTRAP_DIR="${BOOTSTRAP_ROOT_PREFIX}-${BOOTSTRAP_ARCH}/builder-${BUILDER_ARCH}";
+	export BOOTSTRAP_BASE_DIR="${BOOTSTRAP_ROOT_PREFIX}-${BOOTSTRAP_ARCH}";
+	export BOOTSTRAP_DIR="${BOOTSTRAP_BASE_DIR}/builder-${BUILDER_ARCH}";
 
 	export TOOLCHAIN_BASE_DIR="${TOOLCHAIN_ROOT_DIR}/builder-${BUILDER_ARCH}";
 	export TOOLCHAIN_TOOLS_DIR="${TOOLCHAIN_BASE_DIR}/tools";
@@ -251,6 +252,8 @@ SetupToolchainSharedDir(){
 	mkdir -p "${TOOLCHAIN_USR_DIR}"
 	mkdir -p "${TOOLCHAIN_LOCAL_DIR}"
 
+
+
 	[ -e "${TOOLCHAIN_DIR}" ] && {
 		[ ! -e "${TOOLCHAIN_DIR}/usr" ] && ln -s  "../../usr/${DESL_TARGET}" "${TOOLCHAIN_DIR}/usr"
 		[ ! -e "${TOOLCHAIN_DIR}/usr/local" ] && ln -s  "../../usr/local/${DESL_TARGET}" "${TOOLCHAIN_DIR}/usr/local"
@@ -259,6 +262,7 @@ SetupToolchainSharedDir(){
 	[ ! "${PACKAGE_ROOT_CATEGORY}" = 'bootstrap' ] && {
 		export PATH="${TOOLCHAIN_TOOLS_DIR}/bin:${PATH}";
 	}
+
 	return 0;
 }
 
@@ -301,6 +305,11 @@ ChangeEnvIfPackageIsBootstrap(){
 
 	BUILD_DIR=${BUILD_DIR_BOOTSTRAP};
 	DLP_DIR=${DLP_BOOTSTRAP_DIR};
+
+	TOOLCHAIN_DIR="${BOOTSTRAP_DIR}";
+	TOOLCHAIN_USER_BASE_DIR="${TOOLCHAIN_ROOT_DIR}/bootstrap-${BOOTSTRAP_ARCH}/builder-${BUILDER_ARCH}";
+	TOOLCHAIN_USR_DIR="${TOOLCHAIN_USER_BASE_DIR}/usr";
+	TOOLCHAIN_LOCAL_DIR="${TOOLCHAIN_USER_BASE_DIR}/usr/local";
 
 	PATH="${BOOTSTRAP_DIR}/sbin:${BOOTSTRAP_DIR}/bin:${PATH}";
 
@@ -444,5 +453,10 @@ RunDESLBuilder(){
 		1) DESLB_SUBPROCESS=1 "${DESL_BUILDER}" "${@}" || return ${?};;
 		*) DESLB_SUBPROCESS=1 "${CORETOOLS_DIR}/sh" "${DESL_BUILDER}" "${@}" || return ${?};;
 	esac
+	return 0;
+}
+
+RunScript(){
+	"${CORETOOLS_DIR}/sh" "${@}" || return ${?};
 	return 0;
 }

@@ -67,7 +67,7 @@ EnterSession(){
 
 DLPIInstall(){ # /Install /File:<DLP Path> [/Root:<DLP Root>]
 		# [/SkipVerify] [/Force]
-		# [/IgnorePlatform] [/IgnoreSystem] [/IgnoreDepends] [/IgnoreConflict] [/IgnoreFreeSpace]
+		# [/IgnorePlatform] [/IgnoreSystem] [/IgnoreDepends] [/IgnoreConflict] [/IgnoreCapacity]
 	DLPICleanup
 
 	[ ! "${ARGS_OPT_LONG_File+1}" = '1' ] && {
@@ -120,7 +120,7 @@ DLPIInstall(){ # /Install /File:<DLP Path> [/Root:<DLP Root>]
 		}
 	}
 
-	[ "${ARGS_OPT_LONG_IgnoreFreeSpace}" = '' ] && {
+	[ "${ARGS_OPT_LONG_IgnoreCapacity}" = '' ] && {
 		local Free Size;
 		ConfigGet Size 'DLPackage::Data:Size' 0
 		set -- `df -m "${ROOT_DIR}"`
