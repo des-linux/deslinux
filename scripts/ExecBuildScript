@@ -53,6 +53,9 @@ RunDESLBScript(){ # mode
 			DESLBInstall || return ${?};
 			MakeDLP || return ${?};
 			;;
+		Clean )
+			DESLBClean || return ${?};
+			;;
 		*)
 			error "Unsupported build mode '${BUILD_MODE}'"
 			return 1;
@@ -102,7 +105,7 @@ MakeDLP(){
 	}
 
 	local BaseSystem='';
-	[ "${PACKAGE_ROOT_CATEGORY}" = 'bootstrap' ] && BaseSystem='/BaseSystem:DESLBuilder';
+	[ "${PACKAGE_ROOT_CATEGORY}" = 'bootstrap' ] && BaseSystem='/System:DESLBuilder';
 	mkdir -p "${DLP_ROOT_DIR}/"
 
 	{ # doc
@@ -177,7 +180,7 @@ MakeDLP(){
 	CheckEmptyDir "${DLP_INSTALL_DIR}" && {
 		warning "No main files found to install."
 	} || {
-		RunDLPI /Create /Dir:"${DLP_INSTALL_DIR}" /PackageDef:"${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def" /Platform:${DESL_ARCH} /ID:${DESL_BUILD_PACKAGE} /SaveTo:"${DLP_DIR}/${Package_Category}/${Package_ID}_${Package_ID_Suffix}_${DESL_ARCH}.dlp" || return ${?};
+		RunDLPI /Create /Dir:"${DLP_INSTALL_DIR}" /PackageDef:"${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def" /Platform:${DESL_ARCH} /ID:${DESL_BUILD_PACKAGE} /SaveTo:"${DLP_DIR}/${Package_Category}/${Package_ID}_${Package_ID_Suffix}_${DESL_ARCH}.dlp" ${BaseSystem} || return ${?};
 	}
 
 	return 0;

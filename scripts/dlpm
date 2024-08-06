@@ -38,6 +38,11 @@ Main(){
 			EnterSession DLPMInstall;
 			return ${?};;
 
+		FindPackage )
+			DLPM_DRY_RUN=1;
+			EnterSessionEx DLPMInstall;
+			return ${?};;
+
 		Remove | Uninstall )
 			EnterSession DLPMRemove;
 			return ${?};;
@@ -46,7 +51,6 @@ Main(){
 			return ${?};;
 
 		List)
-			EnterSession DLPMList;
 			return ${?};;
 
 		Search )
@@ -60,6 +64,10 @@ Main(){
 			DLPMUsage;
 			return 0;;
 	esac
+}
+
+dlpi(){
+	${DESLB_SH} "${DLPI}" "${@}"
 }
 
 EnterSession(){
@@ -108,6 +116,11 @@ DLPMInstall(){
 	ResolveFileArgs ${ARGS_FILE_LIST} || return ${?};
 	ResolveDepends || return ${?};
 
+	[ "${DLPM_DRY_RUN:+1}" = '1' ] && {
+		echo "${DLPM_RESOLVED_FILES}"
+		return 0;
+	}
+
 echo "
 Resolved Files path:
 $DLPM_RESOLVED_FILES
@@ -152,9 +165,8 @@ set | grep -e DLPM__DEP_ID_LOCAL_RESOLVED_
 	info 'Installing packages...'
 	for x in ${INSTALL_FILES}; do
 		info " ${x}..."
-		"${sRoot}/dlpi" /Install /Root:"${ROOT_DIR}" /File:"${x}" /IgnoreDepends /IgnoreCapacity /IgnoreSystem /IgnorePlatform
+		dlpi /Install /Root:"${ROOT_DIR}" /File:"${x}" /IgnoreDepends /IgnoreCapacity /IgnoreSystem /IgnorePlatform || return ${?};
 	done
-
 
 	return 0;
 }
@@ -423,11 +435,16 @@ ResolveDepends(){
 		DLPM_DEPENDS_LIST='';
 
 		for x in ${DEPLIST}; do
-			FindLocal ${x} && { # Already resolved by local packages
-				continue
+			FindLocal "${x}" && { # Already resolved by local packages
+				continue;
 			}
 
-			FindDB ${x} || {
+			FindDESLBuilder "${x}" && {
+				DLPM_RESOLVED_FILES="${DLPM_RESOLVED_FILES}${LF}file://${DESLBDLP_FILE}";
+				continue;
+			}
+
+			FindDB "${x}" || {
 				[ "${ARGS_OPT_LONG_IgnoreDepends}" = '' ] && {
 					error "Package '${x}' not found."
 					return 1;
@@ -536,6 +553,27 @@ FindDB(){ # 1 ID
 			}
 		done
 
+	done
+
+	return 1;
+}
+
+FindDESLBuilder(){
+	local x;
+	[ ! "${DLP_DIR:-:}" ] && {
+		return 0;
+	}
+
+	# Not local
+	DESLBDLP_FILE='';
+
+	local P_CAT="${1%/*}";
+	local P_ID="${1##*/}";
+	local P_DIR="${DLP_DIR}/${P_CAT}";
+
+	for x in `find "${P_DIR}" -name "${P_ID}_*.dlp" | sort -r -V -k2,3 -t '_'`; do
+		DESLBDLP_FILE="${x}";
+		return 0;
 	done
 
 	return 1;

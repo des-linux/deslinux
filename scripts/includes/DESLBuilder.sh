@@ -54,6 +54,11 @@ BuilderRunScript(){
 BuilderSolveSourceDepends(){
 	local x;
 	local MODE="${1}";
+
+	[ ! "${Package_ImportCoreInfo:--}" = '-' ] && {
+		RunDESLBuilder ${ARGS_RAW_STRING} /M:${MODE} /Package:${Package_ImportCoreInfo} || return ${?}
+	}
+
 	for x in `ConfigFileList "${PKG_FILE}" 'BuildDepends_SourceOnly'`; do
 		RunDESLBuilder ${ARGS_RAW_STRING} /M:${MODE} /Package:${x} || return ${?}
 	done
@@ -65,12 +70,19 @@ BuilderSolveLibraryDepends(){
 
 	for x in `ConfigFileList "${PKG_FILE}" 'BuildDepends_Library'`; do
 		vinfo "Checking install status..."
-		export | grep DIR
-		RunScript "${SCRIPTS_DIR}/dlpi" /Check /Root:${TOOLCHAIN_USR_DIR} /ID:${x} > /dev/null
+		RunScript "${SCRIPTS_DIR}/dlpi" /Check /Root:${TOOLCHAIN_USR_DIR} /ID:${x} > /dev/null || {
+			# Not installed
 
-		error RunDESLBuilder ${ARGS_RAW_STRING} /M:/Build /Package:${x} || return ${?}
+			RunScript "${SCRIPTS_DIR}/dlpm" /FindPackage ${x} || {
+				# No package
+				error NO PACKAGE!!
+				error RunDESLBuilder ${ARGS_RAW_STRING} /M:/Build /Package:${x} || return ${?}
+			}
+
+			RunScript "${SCRIPTS_DIR}/dlpm" /Install /Root:${TOOLCHAIN_USR_DIR} "${x}"
+		}
 	done
-	return 2;
+
 	return 0;
 }
 
@@ -79,8 +91,13 @@ BuilderDownload(){
 
 	BuilderSolveSourceDepends /Download || return ${?};
 
-	local PKG_ARC_FILE="${DL_CACHE_DIR}/${Package_Source_SaveTo}"
 	vinfo ' Downloading...'
+	[ "${Package_Source_SaveTo}" = '' ] && {
+		vinfo '  No source file required'
+		return 0;
+	}
+
+	local PKG_ARC_FILE="${DL_CACHE_DIR}/${Package_Source_SaveTo}"
 
 	[ -e "${PKG_ARC_FILE}" ] && {
 		vinfo '  Already downloaded'
@@ -92,10 +109,6 @@ BuilderDownload(){
 	rm -f "${PKG_ARC_DL}"
 
 	case "${PKG_ARC_URL}" in
-		'' | '-/--' )
-			vinfo '  No source file required'
-			return 0;
-		;;
 		http://* | https://* )
 			BuilderRunCommand wget --no-check-certificate -O "${PKG_ARC_DL}" "${PKG_ARC_URL}" || {
 				error 'Failed to download package file'
@@ -270,5 +283,10 @@ BuilderCompile(){ # mode
 
 BuilderInstall(){ # mode
 	BuilderRunScript Install "${@}" || return ${?};
+	return 0;
+}
+
+BuilderClean(){ # mode
+	BuilderRunScript Clean "${@}" || return ${?};
 	return 0;
 }

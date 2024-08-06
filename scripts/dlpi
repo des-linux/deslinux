@@ -298,21 +298,30 @@ DLPIExtract(){ # /Extract /File:<DLP Path> [/Dir:<Extract to>]  [/Verbose, /v] [
 
 	local EX_OPTS='';
 	local CMD='';
+	local R=0;
 	case "${TypeA}" in
 		'dla' )
 			CMD='-i';
 			[ "${DLPI_LIST_ONLY:-0}" = '1' ] && CMD='-t';
 			[ ! "${ARGS_OPT_LONG_Verbose}${ARGS_OPT_LONG_v}" = '' ] && EX_OPTS="${EX_OPTS} -v";
-			cpio -F "${ARGS_OPT_LONG_File}" -H newc -i --to-stdout "data.dla${DLP_DATA_SUFFIX}" 2>/dev/null | ${DecompApp} | cpio -H nwec ${CMD} -d -u ${EX_OPTS} 2>/dev/null;;
+
+			cpio -F "${ARGS_OPT_LONG_File}" -H newc -i --to-stdout "data.dla${DLP_DATA_SUFFIX}" 2>/dev/null | ${DecompApp} | cpio -H newc ${CMD} -d -u ${EX_OPTS} 2>/dev/null || R=${?};
+		;;
 		'tar' )
 			CMD='x';
 			[ "${DLPI_LIST_ONLY:-0}" = '1' ] && CMD='t';
 			[ ! "${ARGS_OPT_LONG_Verbose}${ARGS_OPT_LONG_v}" = '' ] && EX_OPTS='v';
-			cpio -F "${ARGS_OPT_LONG_File}" -H newc -i --to-stdout "data.tar${DLP_DATA_SUFFIX}" 2>/dev/null | ${DecompApp} | tar ${CMD}${EX_OPTS};;
+			cpio -F "${ARGS_OPT_LONG_File}" -H newc -i --to-stdout "data.tar${DLP_DATA_SUFFIX}" 2>/dev/null | ${DecompApp} | tar ${CMD}${EX_OPTS} || R=${?};
+		;;
 		* )
 			error "Unsupported archive method '${TypeA}'";
 			return 1;;
 	esac
+
+ 	[ ! "${R}" = '0' ] && {
+		error "Failed to install package."
+		return ${R};
+	}
 
 	[ "${CD:-0}" = '1' ] && {
 		cd - >/dev/null || return ${?};

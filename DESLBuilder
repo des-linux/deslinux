@@ -126,13 +126,15 @@ RunDESLBuilderXInWorld(){
 	ClearEnvVariables '/sbin:/bin';
 	SetEnvVariables;
 
+	local PATH_FSV="${CORETOOLS_DIR}";
+
 	# Already run without FSV (Return)
 	[ "${DESLB_DISABLE_FSV:-0}" = '1' ] && {
 		mount -t tmpfs "tmp://DESLBuilder/session/${DESLB_SESSION_ID}" "/tmp" || {
 			error 'Failed to mount tmpfs in /tmp directory.'
 			return ${1};
 		}
-		PATH="${PATH_OLD}" ExecDESLBuilderX "${@}";
+		PATH="${PATH_FSV}:${PATH_OLD}" ExecDESLBuilderX "${@}";
 		return ${?};
 	}
 
@@ -146,7 +148,7 @@ RunDESLBuilderXInWorld(){
 			error 'Failed to mount tmpfs in /tmp directory.'
 			return ${1};
 		}
-		PATH="${PATH_OLD}" DESLB_DISABLE_FSV=1 ExecDESLBuilderX "${@}";
+		PATH="${PATH_FSV}:${PATH_OLD}" DESLB_DISABLE_FSV=1 ExecDESLBuilderX "${@}";
 		R=${?};
 	}
 	return ${R};
@@ -195,10 +197,12 @@ ClearEnvVariables(){
 		set -- ${e}
 		case ${2} in
 			'') ;;
-			DESL_BUILDER | BOOTSTRAP_ARCH* | TERM | PWD) ;;
+			DESL_BUILDER | BOOTSTRAP_ARCH* | DESL_TEST_PACKAGE | TERM | PWD ) ;;
 			DESLB_*);;
 #			*_DIR);;
-			PATH ) PATH_OLD="${PATH}";;
+			PATH )
+				[ "${PATH_OLD:+1}" = '' ] && PATH_OLD="${PATH}"
+			;;
 			*) export -n ${2}; unset ${2};;
 		esac
 	done

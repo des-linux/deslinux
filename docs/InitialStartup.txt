@@ -1,0 +1,42 @@
+
+
+- DESLBuilder
+	- Check existance of DBSE
+		- Build DESLBuilder Script Engine (DBSE - Minimum shell environment with busybox)
+	- Enter DESLBuilder environment
+		- Clear all environment variables including PATH
+		- Make kernel namespace
+		- DESLBuilderX
+			- Load separated script files
+			- Parse arguments
+			- Load configuration
+			- Set environemnt variables
+			- Change environemnt variables if package is bootstrap/*
+			- Verify '/Arch:' option
+			- Check prerequisites if command is /Config, /Compile
+				- If package: bootstrap/*
+					- Check and build 'bootstrap/rm'		(UNIMPLEMENTED)
+					- Check and build 'bootstrap/MakeCPIO'
+				- If package: toolchain/*
+					- Check same as bootstrap/*
+					- 'bootstrap' special package: It will check and build these packages:
+						- 'bootstrap/binutils'
+						- 'bootstrap/gmp'
+						- 'bootstrap/mpfr'
+						- 'bootstrap/mpc'
+						- 'bootstrap/gcc'
+						- 'bootstrap/libgcc'
+						- 'bootstrap/musl'
+						- 'bootstrap/libstdc++'
+				- If package: * (Excluding above)
+					- 'toolchain' special package: It will check and build these packages:
+						- 'toolchain/binutils'
+						- 'toolchain/gmp'
+						- 'toolchain/mpfr'
+						- 'toolchain/mpc'
+						- 'toolchain/gcc'
+						- 'toolchain/libgcc'
+						- 'toolchain/musl'
+						- 'toolchain/libstdc++'
+			- Run command (/Help, /Build, ...)
+			- ExecBuildScript

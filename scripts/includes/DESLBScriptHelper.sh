@@ -8,6 +8,7 @@
 # Helper functions can call from DESLBScript.sh
 
 export DESL_MAKE="make ${MAKE_OPT}"
+export DESL_MAKE_INSTALL="make DESTDIR=${DLP_INSTALL_DIR} prefix=/"
 
 DESLBP_GetSharedDirectory(){ # package ID
 	PackageLoad "${1}" "${PACKAGES_DIR}/${1}/DESLPackage.def" GSD || return ${?};

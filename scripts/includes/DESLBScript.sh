@@ -21,16 +21,23 @@ DESLBConfig(){
 		return ${?};
 	}
 
-	./configure
+	error ./configure --host=${DESL_TARGET}
+	return 3
 	return ${?};
 }
 
 DESLBCompile(){
-	make
+	${DESL_MAKE}
 	return ${?};
 }
 
 DESLBInstall(){
-	make install DESTDIR=${DLP_INSTALL_DIR} prefix=/
+	${DESL_MAKE} install DESTDIR="${DLP_INSTALL_DIR}" prefix='/'
+	return 3;
+	return ${?};
+}
+
+DESLBClean(){
+	make clean
 	return ${?};
 }
