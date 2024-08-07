@@ -105,8 +105,9 @@ EnterSessionEx(){
 
 	info "DLPM session exited with status code: ${R}"
 
-	rm -rf "${TMPDIR}" || return ${?};
+	rm -rf "${TMPDIR}"
 
+	return ${R};
 }
 
 DLPMInstall(){
@@ -120,19 +121,6 @@ DLPMInstall(){
 		echo "${DLPM_RESOLVED_FILES}"
 		return 0;
 	}
-
-echo "
-Resolved Files path:
-$DLPM_RESOLVED_FILES
-
-Depends by above files:
-$DLPM_DEPENDS_LIST
-
-Total Size:
-$DLPM_DEPENDS_SIZE
-
-Locally opened IDS:"
-set | grep -e DLPM__DEP_ID_LOCAL_RESOLVED_
 
 	[ "${ARGS_OPT_LONG_IgnoreCapacity}" = '' ] && {
 		local Free;
@@ -161,7 +149,6 @@ set | grep -e DLPM__DEP_ID_LOCAL_RESOLVED_
 
 	done
 
-	echo "INSTALL FILES: $INSTALL_FILES"
 	info 'Installing packages...'
 	for x in ${INSTALL_FILES}; do
 		info " ${x}..."
@@ -446,7 +433,7 @@ ResolveDepends(){
 
 			FindDB "${x}" || {
 				[ "${ARGS_OPT_LONG_IgnoreDepends}" = '' ] && {
-					error "Package '${x}' not found."
+					[ "${ARGS_OPT_LONG_Quiet:-0}" = '0' ] && error "Package '${x}' not found."
 					return 1;
 				}
 
@@ -571,7 +558,7 @@ FindDESLBuilder(){
 	local P_ID="${1##*/}";
 	local P_DIR="${DLP_DIR}/${P_CAT}";
 
-	for x in `find "${P_DIR}" -name "${P_ID}_*.dlp" | sort -r -V -k2,3 -t '_'`; do
+	for x in `find "${P_DIR}" -name "${P_ID}_*.dlp" 2>/dev/null | sort -r -V -k2,3 -t '_'`; do
 		DESLBDLP_FILE="${x}";
 		return 0;
 	done

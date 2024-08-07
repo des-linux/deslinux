@@ -6,6 +6,7 @@
 #//////////////////////////////////////////////////
 
 DESLB_SUPPORT_NATIVE_ISOLATION=0
+DESLB_SKIP_CONFIG_IF_EXISTS=Makefile
 
 DESLBInitialize(){
 	:
@@ -33,7 +34,6 @@ DESLBCompile(){
 
 DESLBInstall(){
 	${DESL_MAKE} install DESTDIR="${DLP_INSTALL_DIR}" prefix='/'
-	return 3;
 	return ${?};
 }
 

@@ -19,32 +19,49 @@ DESLBuilder(){
 		CheckAndBuildScriptEngine;
 	}
 
-	# 1st: Run in unknown user shell
-	# If 'unshare' is not supported, exit.
+	# 1st: [Exec, NoReturn] Run here in user shell (*sh)
 	[ "${DESLB_RUN_AS_ROOT:-0}" = '0' ] && {
-		ForceUnshare;
-		ExecAsVRoot "${@}";
-		exit ${?};
+		# If 'unshare' is not supported, exit.
+		CheckUnshareWithError || return ${?};
+		ExecInDBSE "${@}";
+		return ${?};
 	}
 
-	# 2nd: Run as vroot in DBSE, Shell extensions are always available
-	[ "${DESLB_HAS_SESSION:-0}" = '0' ] && {
-		StartInNewSession "${@}";
-		exit ${?};
+	# 2nd: [Fork, Return] Run here in DBSE shell, real user
+	#	if return code is 251, Re-run without FSV
+	[ "${DESLB_ISOLATED_ENV:-0}" = '0' ] && {
+		RunInUnshare "${@}";
+		local R=${?};
+		case "${R}" in
+			251 )
+				export DESLB_REQUEST_WITHOUT_FSV=1;
+				RunInUnshare "${@}"
+				R=${?};
+			;;
+		esac
+		return ${R};
 	}
 
-	# 3rd: Exec DESLBuilderX in DESLBWolld
-	[ "${DESLB_RUN_IN_WORLD:-0}" = '0' ] && {
-		RunDESLBuilderXInWorld "${@}";
-		exit ${?};
+	# 3rd: Run here in DBSE shell, unshared: vroot, mount
+
+	# 3rd: P1: [Exec, NoReturn] Exec in the world
+	[ "${DESLB_RUN_IN_WORLD:-0}:${DESLB_REQUEST_WITHOUT_FSV:-0}" = '0:0' ] && {
+		ExecInWorld "${@}"
+		return ${?};
+	}
+	# 3rd: P2: Exec without FSV (for bootstrap building)
+	[ "${DESLB_REQUEST_WITHOUT_FSV:-0}:${DESLB_RUN_WITHOUT_FSV:-0}" = '1:0' ] && {
+		ExecWithoutFSV "${@}"
+		return ${?};
 	}
 
-	ExecDESLBuilderX "${@}";
-	exit ${?};
+	# 4th: Run DESLBuilderX
+	ExecDESLBuilderX "${@}"
+	return ${?};
 }
 
 # Functions
-ExecAsVRoot(){
+ExecInDBSE(){
 	info 'Starting DESLBuilder as vroot...'
 
 	CheckRoot && {
@@ -55,32 +72,28 @@ ExecAsVRoot(){
 		}
 		error 'If you understand all risks of building as root user,'
 		error '	set DESLB_RUN_AS_ROOT=1 (ALL DATAS WILL BE ERASED!)'
-		exit 1;
+		return 1;
 	}
 
-	DESLB_RUN_AS_ROOT=1 DESLB_ENV_CHECKED=1 DESLB_SH="${CORETOOLS_DIR}/sh" exec "${CORETOOLS_DIR}/unshare" -Urm "${CORETOOLS_DIR}/sh" "${SELF}" "${@}"
+	# exec [NoReturn]
+	DESLB_RUN_AS_ROOT=1 DESLB_ENV_CHECKED=1 DESLB_SH="${CORETOOLS_DIR}/sh" exec "${CORETOOLS_DIR}/sh" "${SELF}" "${@}"
 
 	# Never reach here when success
 	error 'Failed to start DESLBuilder as vroot'
-	exit 127;
+	return 127;
 }
 
-StartInNewSession(){
-	GenerateSessionID;
+RunInUnshare(){
+	# GenerateSessionID;
+	export DESLB_SESSION_DIR="${BUILD_ROOT_DIR}/session";
 
 	mkdir -p "${DESLB_SESSION_DIR}" || {
 		error "Failed to create session directory: ${DESLB_SESSION_DIR}"
-		exit ${?};
+		return ${?};
 	}
 
-	DESLB_HAS_SESSION=1 "${CORETOOLS_DIR}/unshare" -Urm "${CORETOOLS_DIR}/sh" "${SELF}" "${@}"
-	local R=${?};
-
-	rmdir "${DESLB_SESSION_DIR}" || {
-		warning "Failed to remove session directory: ${DESLB_SESSION_DIR}"
-	}
-
-	return ${R};
+	DESLB_ISOLATED_ENV=1 "${CORETOOLS_DIR}/unshare" -Urm "${CORETOOLS_DIR}/sh" "${SELF}" "${@}"
+	return ${?};
 }
 
 BindToSessionDir(){ # from (to)
@@ -91,7 +104,8 @@ BindToSessionDir(){ # from (to)
 }
 
 PrepareDESLBWorld(){
-	mount -t tmpfs "tmp://DESLBuilder/session/${DESLB_SESSION_ID}" "${DESLB_SESSION_DIR}" || {
+	# This will clear by kernel at exit DESLBuilder
+	mount -t tmpfs "tmp://DESLBuilder/session" "${DESLB_SESSION_DIR}" || {
 		error 'Failed to mount tmpfs in session directory.'
 		return ${1};
 	}
@@ -104,10 +118,10 @@ PrepareDESLBWorld(){
 	mkdir -p "${DESLB_SESSION_DIR}/tmp"
 	mkdir -p "${DESLB_SESSION_DIR}/mnt"
 
-	BindToSessionDir /dev
-	BindToSessionDir /proc
-	BindToSessionDir /sys
-	BindToSessionDir "${ROOT_DIR}" /DESLBuilder
+	BindToSessionDir /dev || return ${?};
+	BindToSessionDir /proc || return ${?};
+	BindToSessionDir /sys || return ${?};
+	BindToSessionDir "${ROOT_DIR}" /DESLBuilder || return ${?};
 
 	ln -s 'tmp' "${DESLB_SESSION_DIR}/var"
 
@@ -120,47 +134,53 @@ PrepareDESLBWorld(){
 	return 0;
 }
 
-RunDESLBuilderXInWorld(){
-	PrepareDESLBWorld || exit ${?};
+ExecInWorld(){
+	PrepareDESLBWorld || return ${?};
 
 	ClearEnvVariables '/sbin:/bin';
 	SetEnvVariables;
 
-	local PATH_FSV="${CORETOOLS_DIR}";
+	DESLB_RUN_IN_WORLD=1 DESLB_SH='/bin/sh' exec chroot "${DESLB_SESSION_DIR}" /DESLBuilder/DESLBuilder "${@}"
 
-	# Already run without FSV (Return)
-	[ "${DESLB_DISABLE_FSV:-0}" = '1' ] && {
-		mount -t tmpfs "tmp://DESLBuilder/session/${DESLB_SESSION_ID}" "/tmp" || {
-			error 'Failed to mount tmpfs in /tmp directory.'
-			return ${1};
-		}
-		PATH="${PATH_FSV}:${PATH_OLD}" ExecDESLBuilderX "${@}";
-		return ${?};
+	# Never reach here when success
+	error 'Failed to start DESLBuilder in world'
+	return 127;
+}
+
+ExecWithoutFSV(){
+	warning 'Restarting DESLBuilder without filesystem virtualization...'
+
+	mkdir -p /tmp || {
+		error "Failed to create '/tmp' directory."
+		return 1;
 	}
 
-	DESLB_RUN_IN_WORLD=1 DESLB_SH=/bin/sh chroot "${DESLB_SESSION_DIR}" /DESLBuilder/DESLBuilder "${@}"
-	local R=${?};
+	ClearEnvVariables '/sbin:/bin';
+	SetEnvVariables;
 
-	# Request no fs virtualization (NO Return)
-	[ "${R}" = '251' ] && {
-		warning 'Restarting DESLBuilder without filesystem virtualization...'
-		mount -t tmpfs "tmp://DESLBuilder/session/${DESLB_SESSION_ID}" "/tmp" || {
-			error 'Failed to mount tmpfs in /tmp directory.'
-			return ${1};
-		}
-		PATH="${PATH_FSV}:${PATH_OLD}" DESLB_DISABLE_FSV=1 ExecDESLBuilderX "${@}";
-		R=${?};
-	}
-	return ${R};
+	export DESLB_SH="${CORETOOLS_DIR}/sh"
+
+	PATH="${PATH_OLD}" DESLB_RUN_IN_WORLD=0 DESLB_RUN_WITHOUT_FSV=1 exec "${DESLB_SH}" "${SELF}" "${@}"
+
+	# Never reach here when success
+	error 'Failed to start DESLBuilder in world'
+	return 127;
 }
 
 ExecDESLBuilderX(){
+
+	mount -t tmpfs "tmp://DESLBuilder/session" '/tmp' || {
+		error 'Failed to mount virtualized tmpfs in /tmp directory.'
+		return ${1};
+	}
 
 	[ "${DESL_BUILDER_X}" = '' ] && SHOW_RESULT_CODE=1;
 	[ ! "${DESLB_SUBPROCESS:-0}" = '0' ] && SHOW_RESULT_CODE=0;
 
 	. ${SCRIPTS_DIR}/DESLBuilderX
+
 	DESLB_Main "${@}"
+
 	local R=${?};
 	[ "${R}" = '251' ] && return ${R};
 
@@ -201,7 +221,7 @@ ClearEnvVariables(){
 			DESLB_*);;
 #			*_DIR);;
 			PATH )
-				[ "${PATH_OLD:+1}" = '' ] && PATH_OLD="${PATH}"
+				[ "${PATH_OLD:+1}" = '' ] && export PATH_OLD="${PATH}"
 			;;
 			*) export -n ${2}; unset ${2};;
 		esac
@@ -283,14 +303,14 @@ DetectBuilderArch(){
 	return 0;
 }
 
-ForceUnshare(){
+CheckUnshareWithError(){
 	CheckUnshare || {
 		error 'Your environment does not support root virtualization. It may be:'
 		error '	* Current kernel does not support namespace (CONFIG_USER_NS)'
 		error '	* Run this under 'chroot' environment.'
 		error '	* (Internal 'unshare' command does not support '-Urm' option.)'
 		error 'Please use DESLinux or other environments that supports it.'
-		exit 1;
+		return 1;
 	}
 	return 0;
 }

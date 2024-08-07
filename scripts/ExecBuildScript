@@ -44,22 +44,42 @@ RunDESLBScript(){ # mode
 	vinfo "Starting build process: ${BUILD_MODE}"
 	case "${BUILD_MODE}" in
 		Config )
-			DESLBConfig || return ${?};
-			;;
+			case "${2}" in
+				'' )
+					case "${DESLB_SKIP_CONFIG_IF_EXISTS}" in
+						'' | '-' )
+							DESLBConfig || return ${?};
+						;;
+						* )
+							[ -e "${DESLB_SKIP_CONFIG_IF_EXISTS}" ] && {
+								info "Already configured. Use '/Reconfig' to reconfigure."
+								return 0;
+							}
+							DESLBConfig || return ${?};
+						;;
+					esac
+				;;
+				'force' )
+					DESLBConfig || return ${?};
+				;;
+				'defconfig' ) error "NOT IMPLEMENTED"; return 1;;
+				'menuconfig' ) error "NOT IMPLEMENTED"; return 1;;
+			esac
+		;;
 		Compile )
 			DESLBCompile || return ${?};
-			;;
+		;;
 		Install )
 			DESLBInstall || return ${?};
 			MakeDLP || return ${?};
-			;;
+		;;
 		Clean )
 			DESLBClean || return ${?};
-			;;
+		;;
 		*)
 			error "Unsupported build mode '${BUILD_MODE}'"
 			return 1;
-			;;
+		;;
 	esac
 	return 0;
 
@@ -92,6 +112,7 @@ PrepareBuildDirectory(){ # build_dir, shared_dir
 	mkdir -p "${OV_WORK_DIR}"
 	mkdir -p "${OV_UPPER_DIR}"
 
+	error MOUNT 1
 	mount -t overlay "build://${W_DIR}" "${W_DIR}" -o "rw,lowerdir=${R_DIR},upperdir=${OV_UPPER_DIR},workdir=${OV_WORK_DIR}" || return ${?};
 
 	return 0;
@@ -202,16 +223,16 @@ CheckEmptyDir(){
 }
 
 error(){
-	echo -e "\e[31;1mE:\e[m\e[1m DESLBScript [${DESL_BUILD_PACKAGE}]: ${*}\e[m" >&4
+	echo -e "\e[31;1mE:\e[m\e[1m [${DESLB_NESTLV}] ${DESL_BUILD_PACKAGE}: ${*}\e[m" >&4
 }
 warning(){
-	echo -e "\e[33;1mW:\e[m\e[1m DESLBScript [${DESL_BUILD_PACKAGE}]: ${*}\e[m" >&4
+	echo -e "\e[33;1mW:\e[m\e[1m [${DESLB_NESTLV}] ${DESL_BUILD_PACKAGE}: ${*}\e[m" >&4
 }
 infoex(){
-	echo -e "\e[m\e[1mI:\e[m\e[1m DESLBScript [${DESL_BUILD_PACKAGE}]: ${*}\e[m" >&3
+	echo -e "\e[m\e[1mI:\e[m\e[1m [${DESLB_NESTLV}] ${DESL_BUILD_PACKAGE}: ${*}\e[m" >&3
 }
 info(){
-	echo -e "I: DESLBScript [${DESL_BUILD_PACKAGE}]: ${*}" >&3
+	echo -e "I: [${DESLB_NESTLV}] ${DESL_BUILD_PACKAGE}: ${*}" >&3
 }
 
 # Override by 'VerboseOutput.sh' when DESL_OUTPUT_VERBOSE != 0

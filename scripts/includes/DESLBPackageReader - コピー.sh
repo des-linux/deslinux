@@ -45,7 +45,7 @@ PackageLoad(){ # PackageID, PackageDef, [Prefix]
 	local VAL_PREFIX="${3}";
 
 	[ ! -e "${PACKAGE_DEF_FILE}" ] && {
-		error "Package '${PACKAGE_DEF_FILE}' is not  found."
+		error "Package '${PACKAGE_DEF_FILE}' is not found."
 		return 1;
 	}
 

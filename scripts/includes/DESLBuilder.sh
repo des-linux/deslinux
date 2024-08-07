@@ -7,28 +7,14 @@
 
 . "${INCLUDES_DIR}/DESLBPackageReader.sh"
 
-BuilderRunCommand(){
-	case "${DESL_OUTPUT_VERBOSE:-0}" in
-		2 )
-			"${@}"
-			return ${?};
-			;;
-		* )
-			"${@}" > /dev/null 2>&1
-			return ${?};
-			;;
-	esac
-	return 127;
-}
-
 BuilderRunScriptEx(){
 	case "${DESL_OUTPUT_VERBOSE:-0}" in
-		2 )
-			"${@}" 3>&1 4>&2
+		0 | 1 )
+			"${@}" 3>&1 4>&2 1>/dev/null 2>&1
 			return ${?};
 			;;
 		* )
-			"${@}" 3>&1 4>&2 1>/dev/null 2>&1
+			"${@}" 3>&1 4>&2
 			return ${?};
 			;;
 	esac
@@ -36,24 +22,31 @@ BuilderRunScriptEx(){
 }
 
 BuilderInitialize(){
-	infoex "[${DESLB_NESTLV}] ${DESL_BUILD_PACKAGE}"
+	infoex "[${DESLB_NESTLV}] ${DESL_BUILD_PACKAGE}: ${1}"
 	PKG_FILE="${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def";
 	PackageLoad "${DESL_BUILD_PACKAGE}" "${PKG_FILE}";
 	return ${?};
 }
 
 BuilderRunScript(){
-	BuilderInitialize
+	BuilderInitialize "${1}"
 
 	BuilderSolveLibraryDepends || return ${?};
+	BuilderSolveHostToolsDepends || return ${?};
 
 	BuilderRunScriptEx unshare -m "${DESLB_SH}" "${SCRIPTS_DIR}/ExecBuildScript" "${@}" || return ${?};
 	return ${?};
 }
 
+# [Depends]			= BuildDepends_Library (+ '-dev' package) & RuntimeDepends
+# [BuildDepends_SourceOnly]	/Download, /Extract
+# [BuildDepends_Library]	RunScripts
+# [BuildDepends_HostTools]	RunScripts
+# [RuntimeDepends]		dlpm
+
 BuilderSolveSourceDepends(){
 	local x;
-	local MODE="${1}";
+	local MODE="${1:-/Prepare}";
 
 	[ ! "${Package_ImportCoreInfo:--}" = '-' ] && {
 		RunDESLBuilder ${ARGS_RAW_STRING} /M:${MODE} /Package:${Package_ImportCoreInfo} || return ${?}
@@ -69,17 +62,46 @@ BuilderSolveLibraryDepends(){
 	local x;
 
 	for x in `ConfigFileList "${PKG_FILE}" 'BuildDepends_Library'`; do
-		vinfo "Checking install status..."
-		RunScript "${SCRIPTS_DIR}/dlpi" /Check /Root:${TOOLCHAIN_USR_DIR} /ID:${x} > /dev/null || {
+		vinfo "Checking install status of library..."
+
+		RunDLPI /Check /Root:${TOOLCHAIN_USR_DIR} /ID:${x}-dev || {
+			# Not installed '-dev' package
+			RunDLPM /FindPackage "${x}-dev" /Quiet || {
+				# No package: build
+				RunDESLBuilder ${ARGS_RAW_STRING} /M:/Build /Package:${x} || return ${?}
+			}
+			# Always install
+			RunDLPM /Install /Root:${TOOLCHAIN_USR_DIR} "${x}-dev" || return ${?}
+		}
+
+		RunDLPI /Check /Root:${TOOLCHAIN_USR_DIR} /ID:${x} || {
+			# Not installed 'main' package
+			RunDLPM /FindPackage "${x}" /Quiet && {
+				# Found package
+				RunDLPM /Install /Root:${TOOLCHAIN_USR_DIR} "${x}" || return ${?}
+			}
+			# If not found, ignored
+		}
+	done
+
+	return 0;
+}
+
+BuilderSolveHostToolsDepends(){
+	local x;
+
+	for x in `ConfigFileList "${PKG_FILE}" 'BuildDepends_HostTools'`; do
+		vinfo "Checking install status of host tools..."
+
+		RunDLPI /Check /Root:${TOOLCHAIN_TOOLS_DIR} /ID:${x} || {
 			# Not installed
 
-			RunScript "${SCRIPTS_DIR}/dlpm" /FindPackage ${x} || {
+			RunDLPM /FindPackage ${x} /Quiet || {
 				# No package
-				error NO PACKAGE!!
-				error RunDESLBuilder ${ARGS_RAW_STRING} /M:/Build /Package:${x} || return ${?}
+				RunDESLBuilder ${ARGS_RAW_STRING} /M:/Build /Package:${x} || return ${?}
 			}
 
-			RunScript "${SCRIPTS_DIR}/dlpm" /Install /Root:${TOOLCHAIN_USR_DIR} "${x}"
+			RunDLPM /Install /Root:${TOOLCHAIN_TOOLS_DIR} "${x}"
 		}
 	done
 
@@ -87,7 +109,7 @@ BuilderSolveLibraryDepends(){
 }
 
 BuilderDownload(){
-	BuilderInitialize || return ${?};
+	BuilderInitialize Download || return ${?};
 
 	BuilderSolveSourceDepends /Download || return ${?};
 
@@ -110,7 +132,7 @@ BuilderDownload(){
 
 	case "${PKG_ARC_URL}" in
 		http://* | https://* )
-			BuilderRunCommand wget --no-check-certificate -O "${PKG_ARC_DL}" "${PKG_ARC_URL}" || {
+			RunCommand wget --no-check-certificate -O "${PKG_ARC_DL}" "${PKG_ARC_URL}" || {
 				error 'Failed to download package file'
 				return 1;
 			}
@@ -144,7 +166,7 @@ BuilderDownload(){
 }
 
 BuilderExtract(){
-	BuilderInitialize || return ${?};
+	BuilderInitialize Extract || return ${?};
 
 	BuilderSolveSourceDepends /Extract || return ${?};
 
@@ -185,13 +207,13 @@ BuilderExtract(){
 	vinfo "  '${PKG_ARC_FILE}'..."
 	case "${Package_Source_FileExts}" in
 		.zip )
-			BuilderRunCommand unzip -d "${EXTRACT_DIR}" "${PKG_ARC_FILE}"
+			RunCommand unzip -d "${EXTRACT_DIR}" "${PKG_ARC_FILE}"
 			;;
 		.tar | .tar.gz | .tar.xz | .tar.bz2 | .tar.lzma )
-			BuilderRunCommand tar xvf "${PKG_ARC_FILE}" -C "${EXTRACT_DIR}"
+			RunCommand tar xvf "${PKG_ARC_FILE}" -C "${EXTRACT_DIR}"
 			;;
 		.tar.lzo )
-			BuilderRunCommand lzop -dc "${PKG_ARC_FILE}" | tar xv -C "${EXTRACT_DIR}"
+			RunCommand lzop -dc "${PKG_ARC_FILE}" | tar xv -C "${EXTRACT_DIR}"
 			;;
 		* )
 			error "   Unsupported compress mode"
@@ -231,7 +253,7 @@ BuilderExtract(){
 }
 
 BuilderRemove(){
-	BuilderInitialize || return ${?};
+	BuilderInitialize Remove || return ${?};
 	mkdir -p "${BUILD_DIR}"
 	mkdir -p "${SHARED_SOURCE_ROOT_DIR}"
 

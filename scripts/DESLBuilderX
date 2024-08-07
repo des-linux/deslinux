@@ -3,12 +3,15 @@
 # Always run as vroot with cleaned environemnt variable (But not in DESLBWorld)
 
 DESLB_Main(){
+
 	# DESLBuilderX marker
 	export DESL_BUILDER_X=1;
-	export PS1='DESLBuilder \$ \w>';
 
 	[ "${DESLB_NESTLV:--}" = '-' ] && DESLB_NESTLV=0;
 	export DESLB_NESTLV=$((DESLB_NESTLV+1));
+
+	export PS1='DESLBuilder [${DESLB_NESTLV}] \$ \w>';
+
 
 	# Includes (At this point, INCLUDES_DIR is not defined.)
 	. "${SCRIPTS_DIR}/ConfigManager.sh"
@@ -34,7 +37,7 @@ DESLB_Main(){
 
 	# Bootstrap tools
 	[ "${PACKAGE_ROOT_CATEGORY}" = 'bootstrap' ] && export DESLB_BUILDING_BOOTSTRAP=1;
-	[ "${DESLB_DISABLE_FSV:-0}:${DESLB_BUILDING_BOOTSTRAP:+1}" = '0:1' ] && return 251;
+	[ "${DESLB_RUN_WITHOUT_FSV:-0}:${DESLB_BUILDING_BOOTSTRAP:+1}" = '0:1' ] && return 251;
 
 	# Enable verbose output (To reduce 'if')
 	[ ! "${DESL_OUTPUT_VERBOSE:-0}" = '0' ] && . "${INCLUDES_DIR}/VerboseOutput.sh"
@@ -43,7 +46,7 @@ DESLB_Main(){
 	ChangeEnvIfPackageIsBootstrap;
 
 	[ ! "${ARGS_TARGET}" = "ExportEnv" ] && {
-		SetupToolchainSharedDir;
+		SetupToolchainSharedDir || return ${?};
 
 		[ "${DESLB_BUILDING_BOOTSTRAP:+1}" = '1' ] && {
 			export PATH="${TOOLCHAIN_TOOLS_DIR}/bin:${PATH}";
@@ -55,10 +58,10 @@ DESLB_Main(){
 
 	# Command
 	. "${INCLUDES_DIR}/DESLBuilder.sh"
-	RunCommand "${@}";
+	RunMode "${@}";
 	local R=${?};
 
-return ${R};
+	return ${R};
 }
 
 
@@ -254,17 +257,29 @@ SetupToolchainSharedDir(){
 		rm -rf "${BOOTSTRAP_DIR}/usr"
 	}
 
-	[ ! -e "${TOOLCHAIN_USR_DIR}" ] && {
-		mkdir -p "${TOOLCHAIN_USR_DIR}"
-		RunScript "${SCRIPTS_DIR}/dlpi" /Initialize /Root:${TOOLCHAIN_USR_DIR} /Platform:${DESL_ARCH} /System:DESLBuilder
+	local System='';
+	[ "${DESLB_BUILDING_BOOTSTRAP:+1}" = '1' ] && System='/System:DESLBuilder';
+
+	[ ! -e "${TOOLCHAIN_DIR}" ] && {
+		mkdir -p "${TOOLCHAIN_DIR}" || return ${?};
+		RunScript "${SCRIPTS_DIR}/dlpi" /Initialize /Root:${TOOLCHAIN_DIR} /Platform:${DESL_ARCH} ${System} || return ${?};
 	}
 
-	mkdir -p "${TOOLCHAIN_LOCAL_DIR}"
-	mkdir -p "${TOOLCHAIN_TOOLS_DIR}/bin"
+	[ ! -e "${TOOLCHAIN_USR_DIR}" ] && {
+		mkdir -p "${TOOLCHAIN_USR_DIR}" || return ${?};
+		RunScript "${SCRIPTS_DIR}/dlpi" /Initialize /Root:${TOOLCHAIN_USR_DIR} /Platform:${DESL_ARCH} ${System} || return ${?};
+	}
+
+	mkdir -p "${TOOLCHAIN_LOCAL_DIR}" || return ${?};
+	mkdir -p "${TOOLCHAIN_TOOLS_DIR}/bin" || return ${?};
 
 	[ -e "${TOOLCHAIN_DIR}" ] && {
-		[ ! -e "${TOOLCHAIN_DIR}/usr" ] && ln -s  "../../usr/${DESL_TARGET}" "${TOOLCHAIN_DIR}/usr"
-		[ ! -e "${TOOLCHAIN_DIR}/usr/local" ] && ln -s  "../../usr/local/${DESL_TARGET}" "${TOOLCHAIN_DIR}/usr/local"
+		[ ! -e "${TOOLCHAIN_DIR}/usr" ] && {
+			ln -s  "../../usr/desl-${DESL_ARCH}" "${TOOLCHAIN_DIR}/usr"
+		}
+		[ ! -e "${TOOLCHAIN_DIR}/usr/local" ] && {
+			ln -s  "../../usr/local/desl-${DESL_ARCH}" "${TOOLCHAIN_DIR}/usr/local"
+		}
 	}
 
 	return 0;
@@ -317,6 +332,7 @@ ChangeEnvIfPackageIsBootstrap(){
 	TOOLCHAIN_USER_BASE_DIR="${TOOLCHAIN_ROOT_DIR}/bootstrap-${BOOTSTRAP_ARCH}/builder-${BUILDER_ARCH}";
 	TOOLCHAIN_USR_DIR="${TOOLCHAIN_USER_BASE_DIR}/usr";
 	TOOLCHAIN_LOCAL_DIR="${TOOLCHAIN_USER_BASE_DIR}/usr/local";
+	TOOLCHAIN_TOOLS_DIR="${TOOLCHAIN_DIR}";
 
 	AddPATH "${TOOLCHAIN_DIR}" "${TOOLCHAIN_USR_DIR}" "${TOOLCHAIN_LOCAL_DIR}"
 
@@ -338,7 +354,7 @@ CheckPrerequisites(){
 	RunCheckPrerequisites;
 }
 
-RunCommand(){
+RunMode(){
 
 	case "${ARGS_TARGET}" in
 
@@ -371,7 +387,6 @@ RunCommand(){
 			RunDESLBuilder "${@}" /M:/Extract	|| return ${?};
 		;;
 
-
 		'Config' ) # has sub menu: Menu (menuconfig), Default (defconfig)
 			CheckPrerequisites || return ${?};
 
@@ -384,6 +399,12 @@ RunCommand(){
 				return ${?};
 			}
 			BuilderConfig '' || return ${?};
+		;;
+
+		'Reconfig' | 'ReConfig' )
+			CheckPrerequisites || return ${?};
+
+			BuilderConfig 'force' || return ${?};
 		;;
 
 		'Compile' )
@@ -444,7 +465,7 @@ RunCommand(){
 
 		'Shell' )
 			[ ! "${ARGS_OPT_LONG_DisableFSV}" = '' ] && {
-				[ "${DESLB_DISABLE_FSV:-0}" = '0' ] && return 251;
+				[ "${DESLB_RUN_WITHOUT_FSV:-0}" = '0' ] && return 251;
 			}
 			infoex 'Entering DESLBuilder shell'
 			cd "${ROOT_DIR}"
@@ -462,6 +483,29 @@ RunCommand(){
 return 0;
 };
 
+RunScript(){
+	case ${DESLB_RUN_IN_WORLD:-0} in
+		1) RunCommand "${@}" || return ${?};;
+		*) RunCommand "${CORETOOLS_DIR}/sh" "${@}" || return ${?};;
+	esac
+	return 0;
+}
+
+RunCommand(){
+	case "${DESL_OUTPUT_VERBOSE:-0}" in
+		0 | 1)
+			"${@}" > /dev/null
+			return ${?};
+			;;
+
+		* )
+			"${@}"
+			return ${?};
+			;;
+	esac
+	return 127;
+}
+
 RunDESLBuilder(){
 	case ${DESLB_RUN_IN_WORLD} in
 		1) DESLB_SUBPROCESS=1 "${DESL_BUILDER}" "${@}" || return ${?};;
@@ -470,7 +514,17 @@ RunDESLBuilder(){
 	return 0;
 }
 
-RunScript(){
-	"${CORETOOLS_DIR}/sh" "${@}" || return ${?};
-	return 0;
+RunDLPM(){
+	RunScript "${SCRIPTS_DIR}/dlpm" "${@}"
+	return ${?};
+}
+
+RunDLPI(){
+	RunScript "${SCRIPTS_DIR}/dlpi" "${@}"
+}
+
+DESLBuilder(){
+	vinfo "Use 'RunDESLBuilder' instead"
+	RunDESLBuilder "${@}"
+	return ${?};
 }
