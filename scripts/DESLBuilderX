@@ -47,11 +47,14 @@ DESLB_Main(){
 
 	[ ! "${ARGS_TARGET}" = "ExportEnv" ] && {
 		SetupToolchainSharedDir || return ${?};
-
-		[ "${DESLB_BUILDING_BOOTSTRAP:+1}" = '1' ] && {
-			export PATH="${TOOLCHAIN_TOOLS_DIR}/bin:${PATH}";
-		}
 	}
+
+	# Add toolchain PATH
+	[ "${PACKAGE_ROOT_CATEGORY}" = 'toolchain' ] && {
+		export DESLB_BUILDING_TOOLCHAIN=1;
+		AddPATH "${BOOTSTRAP_DIR}"
+	}
+	AddPATH "${TOOLCHAIN_DIR}" "${TOOLCHAIN_USR_DIR}" "${TOOLCHAIN_TOOLS_DIR}" "${TOOLCHAIN_LOCAL_DIR}"
 
 	# Verify 'Arch'
 	VerifyArch;
@@ -270,8 +273,13 @@ SetupToolchainSharedDir(){
 		RunScript "${SCRIPTS_DIR}/dlpi" /Initialize /Root:${TOOLCHAIN_USR_DIR} /Platform:${DESL_ARCH} ${System} || return ${?};
 	}
 
+
+	[ ! -e "${TOOLCHAIN_TOOLS_DIR}" ] && {
+		mkdir -p "${TOOLCHAIN_TOOLS_DIR}/bin" || return ${?};
+		RunScript "${SCRIPTS_DIR}/dlpi" /Initialize /Root:${TOOLCHAIN_TOOLS_DIR} /Platform:${DESL_ARCH} ${System} || return ${?};
+	}
+
 	mkdir -p "${TOOLCHAIN_LOCAL_DIR}" || return ${?};
-	mkdir -p "${TOOLCHAIN_TOOLS_DIR}/bin" || return ${?};
 
 	[ -e "${TOOLCHAIN_DIR}" ] && {
 		[ ! -e "${TOOLCHAIN_DIR}/usr" ] && {
@@ -333,8 +341,6 @@ ChangeEnvIfPackageIsBootstrap(){
 	TOOLCHAIN_USR_DIR="${TOOLCHAIN_USER_BASE_DIR}/usr";
 	TOOLCHAIN_LOCAL_DIR="${TOOLCHAIN_USER_BASE_DIR}/usr/local";
 	TOOLCHAIN_TOOLS_DIR="${TOOLCHAIN_DIR}";
-
-	AddPATH "${TOOLCHAIN_DIR}" "${TOOLCHAIN_USR_DIR}" "${TOOLCHAIN_LOCAL_DIR}"
 
 	return 0;
 }
