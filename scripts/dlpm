@@ -1,5 +1,21 @@
 #!/bin/sh
 
+IDKeyConvDB(){
+cat <<"EOF";
+ 	20
+!	21
+\*	2A
++	2B
+,	2C
+-	2D
+.	2E
+\/	2F
+:	3A
+\?	3F
+@	40
+EOF
+}
+
 Main(){
 	CheckEnv || return ${?};
 
@@ -68,6 +84,17 @@ Main(){
 
 dlpi(){
 	${DESLB_SH} "${DLPI}" "${@}"
+}
+
+ConvertKey(){
+	local K="${1}";
+	local IFS=$'\n\r';
+
+	for x in `ParseArgsKeyConvDB`; do
+		IFS=$'\t';
+		set -- ${x}
+		eval ${K}=\${${K}//${1}/__0x${2}__};
+	done
 }
 
 EnterSession(){
@@ -345,6 +372,8 @@ AddDependsList(){ # ID to add
 
 	IDX="${ID//\//_____}";
 	IDX="${IDX//-/___}";
+
+	ConvertKey IDX
 
 	eval R="\${DLPM__DEP_ID_ADDED_${IDX}}";
 	[ ! "${R}" = '1' ] && {

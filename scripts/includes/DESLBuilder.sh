@@ -64,6 +64,11 @@ BuilderSolveLibraryDepends(){
 	for x in `ConfigFileList "${PKG_FILE}" 'BuildDepends_Library'`; do
 		vinfo "Checking install status of library..."
 
+		case "${x}" in
+			bootstrap/libgcc | bootstrap/libstdc++ )
+				TOOLCHAIN_USR_DIR="${TOOLCHAIN_TOOLS_DIR}";;
+		esac
+
 		RunDLPI /Check /Root:${TOOLCHAIN_USR_DIR} /ID:${x}-dev || {
 			# Not installed '-dev' package
 			RunDLPM /FindPackage "${x}-dev" /Quiet || {

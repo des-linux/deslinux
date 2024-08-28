@@ -1,0 +1,51 @@
+#!/bin/sh
+
+main(){
+	
+	local NIDa="${1}";
+	local NIDb="${2}";
+	local ORGa="${1}";
+	local ORGb="${2}";
+
+	[ "${NIDb}" = '' ] && {
+		echo "${0} <Network ID 1> <Network ID 2>"
+		return 1;
+	}
+
+	[ "${NIDa}" = "${NIDb}" ] && {
+		echo "2 network IS is same."
+		return 1;
+	}
+
+	# Always b is larger
+	[ "${NIDa}" -ge "${NIDb}" ] && {
+		local x="${NIDb}";
+		NIDb="${NIDa}";
+		NIDa="${x}";
+
+		x="${ORGb}";
+		ORGb="${ORGa}";
+		ORGa="${x}";
+	}
+
+	[ "${NIDb}" -ge "256" ] && {
+		echo Illegal IP range
+		return 1;
+	}
+
+	[ "${NIDb}" -ge "128" ] && {
+		NIDa=$((NIDa+127))
+		NIDb=$((NIDb-128))
+	}
+
+	local a=$((NIDb*2));
+	local b=$((a+1));
+
+	echo "10.${NIDa}.0.0/16 :  	[${ORGa}]: 10.0.${NIDa}.${a}  -  [${ORGb}]: 10.0.${NIDa}.${b}"
+
+
+}
+
+main "${@}";
+
+
