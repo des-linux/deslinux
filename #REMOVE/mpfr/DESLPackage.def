@@ -1,0 +1,6 @@
+[DESLPackage]
+ImportCoreInfo	= lib/mpfr
+Revision	= 0
+
+[BuildDepends_Library]
+toolchain-base/gmp

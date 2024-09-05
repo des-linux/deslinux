@@ -16,6 +16,7 @@ DESLBuilder(){
 	SetEnvVariables;
 
 	[ "${DESLB_ENV_CHECKED:-0}" = '0' ] && {
+		CheckAndBuildRM;
 		CheckAndBuildScriptEngine;
 	}
 
@@ -129,6 +130,7 @@ PrepareDESLBWorld(){
 	ln -s 'busybox' "${DESLB_SESSION_DIR}/bin/sh"
 
 	chroot "${DESLB_SESSION_DIR}" /bin/busybox --install -s
+	cp "${CORETOOLS_DIR}/rm" "${DESLB_SESSION_DIR}/bin/rm"
 
 	cp "/etc/resolv.conf" "${DESLB_SESSION_DIR}/etc"
 	return 0;
@@ -260,6 +262,19 @@ SetDirectoryWithArch(){
 
 	export DBSE_DIR="${BOOTSTRAP_ROOT_PREFIX}-${BOOTSTRAP_ARCH}/DBSE";
 	export CORETOOLS_DIR="${DBSE_DIR}/coretools";
+}
+
+CheckAndBuildRM(){
+	[ -e "${CORETOOLS_DIR}/rm" ] && return 0;
+
+	warning 'Building prerequisite: DESLinux rm'
+	mkdir -p "${CORETOOLS_DIR}"
+	gcc -static "${PACKAGES_DIR}/DESLinux/rm/src/rm.c" -o "${CORETOOLS_DIR}/rm" || {
+		error 'Failed to setup DESLinux rm'
+		return 1;
+	}
+
+	return 0;
 }
 
 CheckAndBuildScriptEngine(){

@@ -1,0 +1,6 @@
+[DESLPackage]
+ImportCoreInfo	= lib/mpc
+Revision	= 0
+
+[BuildDepends_Library]
+toolchain-base/mpfr

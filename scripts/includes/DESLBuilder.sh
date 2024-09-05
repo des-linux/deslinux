@@ -60,35 +60,13 @@ BuilderSolveSourceDepends(){
 
 BuilderSolveLibraryDepends(){
 	local x;
-
 	for x in `ConfigFileList "${PKG_FILE}" 'BuildDepends_Library'`; do
+		local INSTALL_DIR="${TOOLCHAIN_USR_DIR}";
 		vinfo "Checking install status of library..."
 
-		case "${x}" in
-			bootstrap/libgcc | bootstrap/libstdc++ )
-				TOOLCHAIN_USR_DIR="${TOOLCHAIN_TOOLS_DIR}";;
-		esac
-
-		RunDLPI /Check /Root:${TOOLCHAIN_USR_DIR} /ID:${x}-dev || {
-			# Not installed '-dev' package
-			RunDLPM /FindPackage "${x}-dev" /Quiet || {
-				# No package: build
-				RunDESLBuilder ${ARGS_RAW_STRING} /M:/Build /Package:${x} || return ${?}
-			}
-			# Always install
-			RunDLPM /Install /Root:${TOOLCHAIN_USR_DIR} "${x}-dev" || return ${?}
-		}
-
-		RunDLPI /Check /Root:${TOOLCHAIN_USR_DIR} /ID:${x} || {
-			# Not installed 'main' package
-			RunDLPM /FindPackage "${x}" /Quiet && {
-				# Found package
-				RunDLPM /Install /Root:${TOOLCHAIN_USR_DIR} "${x}" || return ${?}
-			}
-			# If not found, ignored
-		}
+		BuilderDLPM_Library /Install "${x}-dev" "${x}" || return ${?};
+		BuilderDLPM_Library /Install "${x}" 1
 	done
-
 	return 0;
 }
 
@@ -96,18 +74,10 @@ BuilderSolveHostToolsDepends(){
 	local x;
 
 	for x in `ConfigFileList "${PKG_FILE}" 'BuildDepends_HostTools'`; do
+		local INSTALL_DIR="${TOOLCHAIN_TOOLS_DIR}";
 		vinfo "Checking install status of host tools..."
 
-		RunDLPI /Check /Root:${TOOLCHAIN_TOOLS_DIR} /ID:${x} || {
-			# Not installed
-
-			RunDLPM /FindPackage ${x} /Quiet || {
-				# No package
-				RunDESLBuilder ${ARGS_RAW_STRING} /M:/Build /Package:${x} || return ${?}
-			}
-
-			RunDLPM /Install /Root:${TOOLCHAIN_TOOLS_DIR} "${x}"
-		}
+		BuilderDLPM_Tools /Install "${x}" || return ${?};
 	done
 
 	return 0;
@@ -315,5 +285,90 @@ BuilderInstall(){ # mode
 
 BuilderClean(){ # mode
 	BuilderRunScript Clean "${@}" || return ${?};
+	return 0;
+}
+
+BuilderDLPM_Library(){ # Mode, PackageID, DoNotBuildIfNotFound
+	local INSTALL_DIR="${TOOLCHAIN_USR_DIR}";
+	BuilderDLPM "${INSTALL_DIR}" "${@}"
+	return ${?};
+}
+
+BuilderDLPM_Tools(){ # Mode, PackageID, DoNotBuildIfNotFound
+	local INSTALL_DIR="${TOOLCHAIN_TOOLS_DIR}";
+	BuilderDLPM "${INSTALL_DIR}" "${@}"
+	return ${?};
+}
+
+BuilderDLPM(){ # Path, Mode, PackageID, DoNotBuildIfNotFound
+	local INSTALL_DIR="${1}";
+	local MODE="${2}";
+	local PID="${3}";
+	local BIFN="${4}";
+
+	case "${PID}" in
+		bootstrap/* )
+			INSTALL_DIR="${BOOTSTRAP_DIR}";;
+		toolchain-base/* )
+			INSTALL_DIR="${BASE_TOOLCHAIN_DIR}";;
+		toolchain/*)
+			INSTALL_DIR="${TOOLCHAIN_DIR}";;
+	esac
+
+	case "${MODE}" in
+		/Install )
+			BuilderDLPMInstall "${INSTALL_DIR}" "${PID}" "${BIFN}"
+			return ${?};;
+		/Remove )
+			BuilderDLPMRemove "${INSTALL_DIR}" "${PID}"
+			return ${?};;
+	esac
+	error 'Unsupported mode '${MODE}' specified.'
+	return 1;
+}
+
+BuilderDLPMInstall(){ # Path, PackageID, DoNotBuildIfNotFound
+	local INSTALL_DIR="${1}";
+	local PID="${2}";
+	local BIFN="${3}";
+
+	# If not installed
+	RunDLPI /Check /Root:${INSTALL_DIR} /ID:${PID} || {
+
+		# If package is not found
+		RunDLPM /FindPackage "${PID}" /Quiet || {
+			[ "${BIFN:-0}" = '1' ] && {
+				return 251;
+			}
+
+			local BID="${PID}";
+			case "${BID}" in
+				*-dev | *-doc )
+					BID="${BID%-*}";
+				;;
+			esac
+
+			RunDESLBuilder ${ARGS_RAW_STRING} /M:/Build /Package:${BID} || return ${?}
+		}
+
+		# install
+		RunDLPM /Install /Root:${INSTALL_DIR} "${PID}" || return ${?}
+	}
+
+	# Installed just / already
+	return 0;
+}
+
+BuilderDLPMRemove(){ # Path, PackageID
+	local INSTALL_DIR="${1}";
+	local PID="${2}";
+
+	# If installed
+	RunDLPI /Check /Root:${INSTALL_DIR} /ID:${PID} && {
+		# Remove
+		RunDLPM /Remove /Root:${INSTALL_DIR} "${PID}" || return ${?}
+	}
+
+	# Removed just / already
 	return 0;
 }

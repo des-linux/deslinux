@@ -23,3 +23,17 @@ DESLBP_OpenBuildDirectory(){ # package ID
 DESLBP_CloseBuildDirectory(){ # package ID
 	:
 }
+
+RunDESLBuilder(){
+	case ${DESLB_RUN_IN_WORLD} in
+		1) DESLB_SUBPROCESS=1 "${DESL_BUILDER}" "${@}" || return ${?};;
+		*) DESLB_SUBPROCESS=1 "${CORETOOLS_DIR}/sh" "${DESL_BUILDER}" "${@}" || return ${?};;
+	esac
+	return 0;
+}
+
+DESLBuilder(){
+	vinfo "Use 'RunDESLBuilder' instead"
+	RunDESLBuilder "${@}"
+	return ${?};
+}

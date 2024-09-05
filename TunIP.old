@@ -1,7 +1,7 @@
 #!/bin/sh
 
 main(){
-	
+
 	local NIDa="${1}";
 	local NIDb="${2}";
 	local ORGa="${1}";
@@ -16,7 +16,7 @@ main(){
 		echo "2 network IS is same."
 		return 1;
 	}
-
+^_^^_^
 	# Always b is larger
 	[ "${NIDa}" -ge "${NIDb}" ] && {
 		local x="${NIDb}";
@@ -47,5 +47,3 @@ main(){
 }
 
 main "${@}";
-
-

@@ -1,0 +1,3 @@
+[DESLPackage]
+ImportCoreInfo	= lib/gmp
+Revision	= 0

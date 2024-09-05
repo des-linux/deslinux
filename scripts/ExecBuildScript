@@ -25,7 +25,7 @@ RunDESLBScript(){ # mode
 	PackageLoad "${DESL_BUILD_PACKAGE}" "${PKG_FILE}" || return ${?};
 
 	# Load default script
-	. "${INCLUDES_DIR}/DESLBScript.sh"
+	. "${DEFAULTS_DIR}/DESLBScript.sh"
 	. "${INCLUDES_DIR}/DESLBScriptHelper.sh"
 
 	# Make writable build directory
@@ -48,6 +48,7 @@ RunDESLBScript(){ # mode
 				'' )
 					case "${DESLB_SKIP_CONFIG_IF_EXISTS}" in
 						'' | '-' )
+							DESLBInitialize || return ${?};
 							DESLBConfig || return ${?};
 						;;
 						* )
@@ -55,11 +56,13 @@ RunDESLBScript(){ # mode
 								info "Already configured. Use '/Reconfig' to reconfigure."
 								return 0;
 							}
+							DESLBInitialize || return ${?};
 							DESLBConfig || return ${?};
 						;;
 					esac
 				;;
 				'force' )
+					DESLBInitialize || return ${?};
 					DESLBConfig || return ${?};
 				;;
 				'defconfig' ) error "NOT IMPLEMENTED"; return 1;;
@@ -67,9 +70,11 @@ RunDESLBScript(){ # mode
 			esac
 		;;
 		Compile )
+			DESLBInitialize || return ${?};
 			DESLBCompile || return ${?};
 		;;
 		Install )
+			DESLBInitialize || return ${?};
 			DESLBInstall || return ${?};
 			MakeDLP || return ${?};
 		;;
