@@ -16,7 +16,7 @@ main(){
 	[ "${NID1}" = "${NID2}" ] && {
 		echo "2 network is same."
 		return 1;
-	}	
+	}
 
 	# Always b is larger
 	[ "${NID1}" -ge "${NID2}" ] && {
@@ -73,4 +73,3 @@ CountIPinBlock(){
 
 
 main "${@}"
-

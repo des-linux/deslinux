@@ -98,8 +98,8 @@ PackageRead(){ # PackageID, PackageDef
 	ConfigLoad "${PACKAGE_DEF_FILE}" DESLPackage > /dev/null || return ${?};
 
 	# Core
-	Package_Category="${PACKAGE_ID%%/*}";
-	Package_ID="${PACKAGE_ID#*/}";
+	Package_Category="${PACKAGE_ID%/*}";
+	Package_ID="${PACKAGE_ID##*/}";
 
 	# [DESLPackage] section
 	ConfigGet Package_Name DESLPackage::DESLPackage:Name -

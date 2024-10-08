@@ -17,13 +17,14 @@ DESLBFinalize(){
 }
 
 DESLBConfig(){
+	ExportToolchainInfo
+
 	[ "${DESLB_SUPPORT_NATIVE_ISOLATION:-0}" = '1' ] && {
-		"${SHARED_SOURCE_DIR}/configure"
+		"${SHARED_SOURCE_DIR}/configure" --build=${BUILDER_TARGET} --host=${DESL_TARGET}
 		return ${?};
 	}
 
-	error ./configure --host=${DESL_TARGET}
-	return 3
+	./configure --build=${BUILDER_TARGET} --host=${DESL_TARGET}
 	return ${?};
 }
 

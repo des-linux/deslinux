@@ -35,7 +35,7 @@ DESLBuilder(){
 		local R=${?};
 		case "${R}" in
 			251 )
-				export DESLB_REQUEST_WITHOUT_FSV=1;
+					export DESLB_REQUEST_WITHOUT_FSV=1;
 				RunInUnshare "${@}"
 				R=${?};
 			;;
@@ -114,8 +114,6 @@ PrepareDESLBWorld(){
 	mkdir -p "${DESLB_SESSION_DIR}/bin"
 	mkdir -p "${DESLB_SESSION_DIR}/etc"
 	mkdir -p "${DESLB_SESSION_DIR}/sbin"
-	mkdir -p "${DESLB_SESSION_DIR}/usr"
-	mkdir -p "${DESLB_SESSION_DIR}/lib"
 	mkdir -p "${DESLB_SESSION_DIR}/tmp"
 	mkdir -p "${DESLB_SESSION_DIR}/mnt"
 
@@ -302,7 +300,7 @@ DetectBuilderArch(){
 	local T1=${1};
 	local T3=${3};
 
-	[ "${T3}" = "" ] && {
+	[ "${T3}" = '' ] && {
 		export DESLB_FAILED_TO_DETECT_ARCH=1
 		warning 'DESLBuilder may not be supported by your shell or environment.'
 	}

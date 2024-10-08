@@ -28,65 +28,29 @@ BuilderInitialize(){
 	return ${?};
 }
 
+# Depends type			When
+# [Depends]			= BuildDepends_Library (+ '-dev' package) & RuntimeDepends
+# [BuildDepends_SourceOnly]	/Download, /Extract
+# [BuildDepends_BuildOnly]	RunScripts
+# [BuildDepends_Library]	RunScripts
+# [BuildDepends_BuildTools]	RunScripts
+# [RuntimeDepends]		Install by dlpm
+
 BuilderRunScript(){
 	BuilderInitialize "${1}"
 
-	BuilderSolveLibraryDepends || return ${?};
-	BuilderSolveHostToolsDepends || return ${?};
+	BuilderSolveDepends_BuildOnly || return ${?};
+	BuilderSolveDepends_BuildTools || return ${?};
+	BuilderSolveDepends_Library || return ${?};
 
 	BuilderRunScriptEx unshare -m "${DESLB_SH}" "${SCRIPTS_DIR}/ExecBuildScript" "${@}" || return ${?};
 	return ${?};
 }
 
-# [Depends]			= BuildDepends_Library (+ '-dev' package) & RuntimeDepends
-# [BuildDepends_SourceOnly]	/Download, /Extract
-# [BuildDepends_Library]	RunScripts
-# [BuildDepends_HostTools]	RunScripts
-# [RuntimeDepends]		dlpm
-
-BuilderSolveSourceDepends(){
-	local x;
-	local MODE="${1:-/Prepare}";
-
-	[ ! "${Package_ImportCoreInfo:--}" = '-' ] && {
-		RunDESLBuilder ${ARGS_RAW_STRING} /M:${MODE} /Package:${Package_ImportCoreInfo} || return ${?}
-	}
-
-	for x in `ConfigFileList "${PKG_FILE}" 'BuildDepends_SourceOnly'`; do
-		RunDESLBuilder ${ARGS_RAW_STRING} /M:${MODE} /Package:${x} || return ${?}
-	done
-	return 0;
-}
-
-BuilderSolveLibraryDepends(){
-	local x;
-	for x in `ConfigFileList "${PKG_FILE}" 'BuildDepends_Library'`; do
-		local INSTALL_DIR="${TOOLCHAIN_USR_DIR}";
-		vinfo "Checking install status of library..."
-
-		BuilderDLPM_Library /Install "${x}-dev" "${x}" || return ${?};
-		BuilderDLPM_Library /Install "${x}" 1
-	done
-	return 0;
-}
-
-BuilderSolveHostToolsDepends(){
-	local x;
-
-	for x in `ConfigFileList "${PKG_FILE}" 'BuildDepends_HostTools'`; do
-		local INSTALL_DIR="${TOOLCHAIN_TOOLS_DIR}";
-		vinfo "Checking install status of host tools..."
-
-		BuilderDLPM_Tools /Install "${x}" || return ${?};
-	done
-
-	return 0;
-}
-
 BuilderDownload(){
 	BuilderInitialize Download || return ${?};
 
-	BuilderSolveSourceDepends /Download || return ${?};
+	BuilderSolveDepends_SourceOnly /Download || return ${?};
 
 	vinfo ' Downloading...'
 	[ "${Package_Source_SaveTo}" = '' ] && {
@@ -143,7 +107,7 @@ BuilderDownload(){
 BuilderExtract(){
 	BuilderInitialize Extract || return ${?};
 
-	BuilderSolveSourceDepends /Extract || return ${?};
+	BuilderSolveDepends_SourceOnly /Extract || return ${?};
 
 	mkdir -p "${BUILD_DIR}"
 	mkdir -p "${SHARED_SOURCE_ROOT_DIR}"
@@ -288,87 +252,111 @@ BuilderClean(){ # mode
 	return 0;
 }
 
-BuilderDLPM_Library(){ # Mode, PackageID, DoNotBuildIfNotFound
-	local INSTALL_DIR="${TOOLCHAIN_USR_DIR}";
-	BuilderDLPM "${INSTALL_DIR}" "${@}"
-	return ${?};
-}
 
-BuilderDLPM_Tools(){ # Mode, PackageID, DoNotBuildIfNotFound
-	local INSTALL_DIR="${TOOLCHAIN_TOOLS_DIR}";
-	BuilderDLPM "${INSTALL_DIR}" "${@}"
-	return ${?};
-}
 
-BuilderDLPM(){ # Path, Mode, PackageID, DoNotBuildIfNotFound
-	local INSTALL_DIR="${1}";
-	local MODE="${2}";
-	local PID="${3}";
-	local BIFN="${4}";
 
-	case "${PID}" in
-		bootstrap/* )
-			INSTALL_DIR="${BOOTSTRAP_DIR}";;
-		toolchain-base/* )
-			INSTALL_DIR="${BASE_TOOLCHAIN_DIR}";;
-		toolchain/*)
-			INSTALL_DIR="${TOOLCHAIN_DIR}";;
-	esac
+# Dependency solvers
 
-	case "${MODE}" in
-		/Install )
-			BuilderDLPMInstall "${INSTALL_DIR}" "${PID}" "${BIFN}"
-			return ${?};;
-		/Remove )
-			BuilderDLPMRemove "${INSTALL_DIR}" "${PID}"
-			return ${?};;
-	esac
-	error 'Unsupported mode '${MODE}' specified.'
-	return 1;
-}
+BuilderSolveDepends_SourceOnly(){ # Mode
+	local x;
+	local MODE="${1:-/Prepare}";
 
-BuilderDLPMInstall(){ # Path, PackageID, DoNotBuildIfNotFound
-	local INSTALL_DIR="${1}";
-	local PID="${2}";
-	local BIFN="${3}";
-
-	# If not installed
-	RunDLPI /Check /Root:${INSTALL_DIR} /ID:${PID} || {
-
-		# If package is not found
-		RunDLPM /FindPackage "${PID}" /Quiet || {
-			[ "${BIFN:-0}" = '1' ] && {
-				return 251;
-			}
-
-			local BID="${PID}";
-			case "${BID}" in
-				*-dev | *-doc )
-					BID="${BID%-*}";
-				;;
-			esac
-
-			RunDESLBuilder ${ARGS_RAW_STRING} /M:/Build /Package:${BID} || return ${?}
-		}
-
-		# install
-		RunDLPM /Install /Root:${INSTALL_DIR} "${PID}" || return ${?}
+	[ ! "${Package_ImportCoreInfo:--}" = '-' ] && {
+		RunDESLBuilder ${ARGS_RAW_STRING} /M:${MODE} /Package:${Package_ImportCoreInfo} || return ${?}
 	}
 
-	# Installed just / already
+	for x in `ConfigFileList "${PKG_FILE}" 'BuildDepends_SourceOnly'`; do
+		RunDESLBuilder ${ARGS_RAW_STRING} /M:${MODE} /Package:${x} || return ${?}
+	done
 	return 0;
 }
 
-BuilderDLPMRemove(){ # Path, PackageID
-	local INSTALL_DIR="${1}";
-	local PID="${2}";
+BuilderSolveDepends_BuildOnly(){ # Build:Y, Install:N, Auto-dev:N, ForBuilder:N
+	BuilderSolveDepends 'BuildDepends_BuildOnly' 1 0 0 0 || return ${?};
+	return 0;
+}
 
-	# If installed
-	RunDLPI /Check /Root:${INSTALL_DIR} /ID:${PID} && {
-		# Remove
-		RunDLPM /Remove /Root:${INSTALL_DIR} "${PID}" || return ${?}
+BuilderSolveDepends_BuildTools(){ # Build:Y, Install:Y, Auto-dev:N, ForBuilder:Y
+	BuilderSolveDepends 'BuildDepends_BuildTools' 1 1 0 1 || return ${?};
+	return 0;
+}
+
+BuilderSolveDepends_Library(){ # Build:Y, Install:N, Auto-dev:Y, ForBuilder:N
+	BuilderSolveDepends 'BuildDepends_Library' 1 1 1 0 || return ${?};
+	BuilderSolveDepends 'BuildDepends_Library' 0 1 0 0 || return ${?};
+	return 0;
+}
+
+BuilderSolveDepends(){ # Section, F:Build, F:Install, F:AutoDev, InstallTo
+	local x;
+	local L_SECTION="${1:--}";
+	local L_BUILD="${2:-0}";
+	local L_INSTALL="${3:-0}";
+	local L_AUTODEV="${4:-0}";
+	local L_FORBUILDER="${5:-0}";
+
+	local L_DLP_DEFAULT="${DLP_DIR}";
+	local L_INSTALL_DEFAULT="${TOOLCHAIN_USR_DIR}";
+	[ "${L_FORBUILDER}" = '1' ] && {
+		L_DLP_DEFAULT="${DLP_DIR_BUILDER}";
+		L_INSTALL_DEFAULT="${TOOLCHAIN_BUILDER_DIR}";
 	}
 
-	# Removed just / already
+	local x_ORG;
+	local L_ARCH;
+	local L_DLP_DIR;
+	local L_INSTALL_DIR;
+	for x in `ConfigFileList "${PKG_FILE}" "${L_SECTION}"`; do
+		L_ARCH='';
+		L_DLP_DIR="${L_DLP_DEFAULT}";
+		L_INSTALL_DIR="${L_INSTALL_DEFAULT}";
+
+		x_ORG="${x}";
+		[ "${L_AUTODEV}" = '1' ] && x="${x}-dev";
+
+		# Directory patch
+		case "${x}" in
+			bootstrap | bootstrap/* )
+				L_DLP_DIR="${DLP_BOOTSTRAP_DIR}";
+				L_INSTALL_DIR="${BOOTSTRAP_DIR}";
+			;;
+
+			toolchain-base | toolchain-base/* )
+				L_DLP_DIR="${DLP_DIR_BASE}";
+				L_INSTALL_DIR="${BASE_TOOLCHAIN_DIR}";
+			;;
+
+			toolchain | toolchain/* )
+				L_DLP_DIR="${DLP_DIR_TOOLCHAIN}";
+				L_INSTALL_DIR="${TOOLCHAIN_DIR}";
+			;;
+
+			* )
+				[ "${L_FORBUILDER}" = '1' ] && L_ARCH='/Arch:BUILD';
+			;;
+		esac
+
+		# Check installed
+		RunDLPI /Check /Root:${L_INSTALL_DIR} /ID:${x} || {
+
+			# Check: DLP exists
+			RunDLPM /FindPackage "${x}" /DLPDir:${L_DLP_DIR} /Quiet || {
+				[ "${L_BUILD}" = '1' ] && {
+					# No DLP && BUILD flag = 1
+					RunDESLBuilder ${ARGS_RAW_STRING} /M:/Build /Package:${x_ORG} ${L_ARCH} || return ${?}
+				} || {
+					# No DLP && BUILD flag = !1 (Ignore this package)
+					continue
+				}
+			}
+
+			# Install DLP
+			[ "${L_INSTALL}" = '1' ] && {
+				RunDLPM /Install /Root:${L_INSTALL_DIR} "${x}" /DLPDir:${L_DLP_DIR} || return ${?}
+			}
+		}
+
+	done
+
 	return 0;
 }

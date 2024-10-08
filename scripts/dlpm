@@ -179,7 +179,7 @@ DLPMInstall(){
 	info 'Installing packages...'
 	for x in ${INSTALL_FILES}; do
 		info " ${x}..."
-		dlpi /Install /Root:"${ROOT_DIR}" /File:"${x}" /IgnoreDepends /IgnoreCapacity /IgnoreSystem /IgnorePlatform || return ${?};
+		dlpi /Install /Root:"${ROOT_DIR}" /File:"${x}" /IgnoreDepends /IgnoreCapacity || return ${?};
 	done
 
 	return 0;
@@ -576,7 +576,10 @@ FindDB(){ # 1 ID
 
 FindDESLBuilder(){
 	local x;
-	[ ! "${DLP_DIR:-:}" ] && {
+
+	local DLP_DIR_LOCAL="${ARGS_OPT_LONG_DLPDir:-${DLP_DIR:--}}";
+
+	[ "${DLP_DIR_LOCAL:--}" = '-' ] && {
 		return 0;
 	}
 
@@ -585,7 +588,7 @@ FindDESLBuilder(){
 
 	local P_CAT="${1%/*}";
 	local P_ID="${1##*/}";
-	local P_DIR="${DLP_DIR}/${P_CAT}";
+	local P_DIR="${DLP_DIR_LOCAL}/${P_CAT}";
 
 	for x in `find "${P_DIR}" -name "${P_ID}_*.dlp" 2>/dev/null | sort -r -V -k2,3 -t '_'`; do
 		DESLBDLP_FILE="${x}";
