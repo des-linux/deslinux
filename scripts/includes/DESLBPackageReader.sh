@@ -60,7 +60,7 @@ PackageLoad(){ # PackageID, PackageDef, [Prefix]
 	local x R;
 
 	[ ! -e "${PACKAGE_DEF_FILE}" ] && {
-		error "Package '${PACKAGE_DEF_FILE}' is not found."
+		error "Package '${PACKAGE_DEF_FILE}' is not defined."
 		return 1;
 	}
 
@@ -91,7 +91,7 @@ PackageRead(){ # PackageID, PackageDef
 	local x;
 
 	[ ! -e "${PACKAGE_DEF_FILE}" ] && {
-		error "Package '${PACKAGE_DEF_FILE}' is not found."
+		error "Package '${PACKAGE_DEF_FILE}' is not defined."
 		return 1;
 	}
 

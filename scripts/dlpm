@@ -42,6 +42,8 @@ Main(){
 	local CERT_DLP_DIR="${CERT_DIR}/CA/";
 	local CERT_REP_DIR="${CERT_DIR}/repositories/";
 
+	local DLPM_DRY_RUN=0;
+
 	case "${ARGS_TARGET}" in
 		Update )
 			return ${?};;
@@ -125,12 +127,12 @@ EnterSessionEx(){
 	local TMPDIR="/tmp/DLPM_${RANDOM}_${RANDOM}_${RANDOM}_${RANDOM}_${RANDOM}/";
 	mkdir -p "${TMPDIR}" || return ${?};
 
-	info 'Starting DLPM session'
+	# info 'Starting DLPM session'
 
 	"${1}" "${TMPDIR}"
 	local R=${?};
 
-	info "DLPM session exited with status code: ${R}"
+	# info "DLPM session exited with status code: ${R}"
 
 	rm -rf "${TMPDIR}"
 
@@ -141,11 +143,13 @@ DLPMInstall(){
 	local x;
 	local LF=$'\n';
 
+	InitResolveList;
+
 	ResolveFileArgs ${ARGS_FILE_LIST} || return ${?};
 	ResolveDepends || return ${?};
 
-	[ "${DLPM_DRY_RUN:+1}" = '1' ] && {
-		echo "${DLPM_RESOLVED_FILES}"
+	[ "${DLPM_DRY_RUN:-0}" = '1' ] && {
+		echo "${DLPM_LIST_FILES}"
 		return 0;
 	}
 
@@ -163,7 +167,7 @@ DLPMInstall(){
 	local INSTALL_FILES='';
 
 	info 'Downloading packages...'
-	for x in ${DLPM_RESOLVED_FILES}; do
+	for x in ${DLPM_LIST_FILES}; do
 		case "${x}" in
 			file://* ) INSTALL_FILES="${INSTALL_FILES}${LF}${x:7}";;
 			dlpm::file://* ) INSTALL_FILES="${INSTALL_FILES}${LF}${x:13}";;
@@ -244,76 +248,11 @@ DLPMRepository(){
 	return 1;
 }
 
-DLPMMakeDB(){
-	# ID | Version | Revision | Platform | System| Size | FileName
-	local DB="${ARGS_OPT_LONG_Dir}/DESLPackage.db"
-	local S256="${ARGS_OPT_LONG_Dir}/DESLPackage.sha256"
-	echo '[DB]' > "${DB}" || return ${?};
-	echo 'Version	= 1' >> "${DB}" || return ${?};
-	echo '' >> "${DB}" || return ${?};
-
-
-	echo '[Packages]' >> "${DB}" || return ${?};
-
-	[ "${ARGS_OPT_LONG_SHA256:+1}" = '1' ] && {
-		echo '[SHA256]' > "${S256}" || return ${?};
-	}
-
- 	local x xx y;
-	local ID PF SYS VER REV SIZE DEP FN;
-	for x in `find "${ARGS_OPT_LONG_Dir}" -name "*.dlp"`; do
-		local xx="${x//${ARGS_OPT_LONG_Dir}/}";
-		info "Reading: '${xx}'..."
-
-		cpio -F "${x}" -H newc -i --to-stdout DESLPackage.def > "${TMPDIR}/DESLPackage.def" 2>/dev/null || {
-			warning "Failed to open DESLPackage.def in '${x}'"
-			continue;
-		}
-
-		ConfigLoad "${TMPDIR}/DESLPackage.def" DLPackage > /dev/null || return ${?};
-		ConfigGet ID 'DLPackage::DLPInstaller:ID' '-'
-		ConfigGet PF 'DLPackage::DLPInstaller:Platform' '-'
-		ConfigGet SYS 'DLPackage::DLPInstaller:System' '-'
-		ConfigGet VER 'DLPackage::DESLPackage:Version' '0'
-		ConfigGet REV 'DLPackage::DESLPackage:Revision' '0'
-		ConfigGet SIZE 'DLPackage::Data:Size' '0'
-
-		local Depends=`ConfigFileList "${TMPDIR}/DESLPackage.def" 'Depends'`;
-		local RuntimeDepends=`ConfigFileList "${TMPDIR}/DESLPackage.def" 'RuntimeDepends'`;
-		local DEP='';
-		for y in ${Depends} ${RuntimeDepends}; do
-			DEP="${DEP:+${DEP},}${y}";
-		done
-
-		[ "${ARGS_OPT_LONG_SHA256:+1}" = '1' ] && {
-			info " Calculating SHA256..."
-			local SHA256=`cat ${x} | sha256sum`;
-			set -- ${SHA256}
-			SHA256="${1}";
-			echo "${xx##/}|${SHA256}" >> "${S256}" || return ${?};
-		}
-
-		echo "${ID}|${PF}|${SYS}|${VER}|${REV}|${SIZE}|${DEP}|${xx##/}" >> "${DB}" || return ${?};
-	done
-
-	[ "${ARGS_OPT_LONG_SHA256:+1}" = '1' ] && {
-		info " Calculating SHA256 of Database..."
-		local SHA256=`cat ${DB} | sha256sum`;
-		set -- ${SHA256}
-		SHA256="${1}";
-		echo "DESLPackage.db|${SHA256}" >> "${S256}" || return ${?};
-	}
-
-
-	cat "${DB}"
-	cat "${S256}"
-	return 0;
-}
-
 InitResolveList(){
 	# Return val: NOT local.
-	DLPM_RESOLVED_FILES='';
-	DLPM_DEPENDS_LIST='';
+	DLPM_LIST_ID='';
+	DLPM_LIST_FILES='';
+
 	DLPM_DEPENDS_SIZE=0;
 
 	for x in `set | grep DLPM__DEP_`; do
@@ -327,19 +266,10 @@ AddResolveListFromFile(){ # PackagePath # ENV: DLPM_NO_SOLVE_DEPENDS
 	local LF=$'\n';
 	local y ID PF SYS SIZE;
 
-	[ ! -e "${x}" ] && {
-		error "File '${x}' is not found."
-		return 1;
-	}
-
-	x=`readlink -f "${x}" 2>/dev/null || echo "${x}"`;
-
-	DLPM_RESOLVED_FILES="${DLPM_RESOLVED_FILES}${LF}file://${x}";
-
 	[ "${DLPM_NO_SOLVE_DEPENDS}" = '1' ] && return 0;
 
 	cpio -F "${x}" -H newc -i --to-stdout DESLPackage.def > "${TMPDIR}/DESLPackage.def" 2>/dev/null || {
-		error "Failed to open DESLPackage.def in '${x}'"
+		error "Invalid DLP file: Failed to open DESLPackage.def in '${x}'"
 		return 1;
 	}
 
@@ -356,6 +286,7 @@ AddResolveListFromFile(){ # PackagePath # ENV: DLPM_NO_SOLVE_DEPENDS
 
 	local Depends=`ConfigFileList "${TMPDIR}/DESLPackage.def" 'Depends'`;
 	local RuntimeDepends=`ConfigFileList "${TMPDIR}/DESLPackage.def" 'RuntimeDepends'`;
+
 	for y in ${Depends} ${RuntimeDepends}; do
 		AddDependsList "${y}"
 	done
@@ -377,7 +308,7 @@ AddDependsList(){ # ID to add
 
 	eval R="\${DLPM__DEP_ID_ADDED_${IDX}}";
 	[ ! "${R}" = '1' ] && {
-		DLPM_DEPENDS_LIST="${DLPM_DEPENDS_LIST:+${DLPM_DEPENDS_LIST}${LF}}${ID}";
+		DLPM_LIST_ID="${DLPM_LIST_ID:+${DLPM_LIST_ID}${LF}}${ID}";
 		eval DLPM__DEP_ID_ADDED_${IDX}=1;
 		return 0;
 	}
@@ -385,9 +316,30 @@ AddDependsList(){ # ID to add
 	return 1;
 }
 
-ResolveFileArgs(){
-	InitResolveList;
+AddDLPFileList(){
+	local x="${1}";
+	local LF=$'\n';
 
+	x=`readlink -f "${x}" 2>/dev/null || echo "${x}"`;
+
+	[ ! -e "${x}" ] && {
+		error "File '${x}' is not found."
+		return 1;
+	}
+
+	DLPM_LIST_FILES="${DLPM_LIST_FILES:+${DLPM_LIST_FILES}}${LF}file://${x}";
+
+	return 0;
+}
+
+AddDLPIDList(){
+	local x="${1}";
+	local LF=$'\n';
+	DLPM_LIST_ID="${DLPM_LIST_ID:+${DLPM_LIST_ID}}${LF}${x}";
+	return 0;
+}
+
+ResolveFileArgs(){ # Normalize DLP path if location of DLP is specified
 	local x;
 
 	for x in "${@}"; do
@@ -399,12 +351,12 @@ ResolveFileArgs(){
 					error 'Failed to download '${x}' .'
 					return 1;
 				}
-				AddResolveListFromFile "${x}" || return ${?};
+				AddDLPFileList "${F}" || return ${?};
 			;;
 
 			file://* )
 				x="${x:7}";
-				AddResolveListFromFile "${x}" || return ${?};
+				AddDLPFileList "${x}" || return ${?};
 			;;
 
 			*://* )
@@ -413,16 +365,16 @@ ResolveFileArgs(){
 			;;
 
 			./* | ../* | /*/* | ~/* | *.* )
-				AddResolveListFromFile "${x}" || return ${?};
+				AddDLPFileList "${x}" || return ${?};
 			;;
 
 			*/* | * )
 				[ -e "${x}" ] && {
-					AddResolveListFromFile "${x}" || return ${?};
+					AddDLPFileList "${x}" || return ${?};
 					continue;
 				}
 
-				AddDependsList "${x}"
+				AddDLPIDList "${x}"
 
 				continue;
 			;;
@@ -439,6 +391,11 @@ ResolveDepends(){
 	local DepAdded=1;
 	local RPass=0;
 
+	# Resolve file first
+	for x in ${DLPM_LIST_FILES}; do
+		AddResolveListFromFile "${x:7}" || return ${?};
+	done
+
 	while [ "${DepAdded:-0}" = '1' ]; do
 		RPass=$((RPass+1));
 		[ "$((RPass))" = '64' ] && {
@@ -447,40 +404,40 @@ ResolveDepends(){
 		}
 
 		DepAdded=0;
-		local DEPLIST="${DLPM_DEPENDS_LIST}";
-		DLPM_DEPENDS_LIST='';
+		local DEPLIST="${DLPM_LIST_ID}";
+		DLPM_LIST_ID='';
 
 		for x in ${DEPLIST}; do
-			FindLocal "${x}" && { # Already resolved by local packages
+
+			FindAlready "${x}" && { # Already resolved by location specified DLPs
 				continue;
 			}
 
-			FindDESLBuilder "${x}" && {
-				DLPM_RESOLVED_FILES="${DLPM_RESOLVED_FILES}${LF}file://${DESLBDLP_FILE}";
-				continue;
-			}
-
-			FindDB "${x}" || {
-				[ "${ARGS_OPT_LONG_IgnoreDepends}" = '' ] && {
-					[ "${ARGS_OPT_LONG_Quiet:-0}" = '0' ] && error "Package '${x}' not found."
-					return 1;
-				}
-
-				warning "Package '${x}' not found."
-				continue;
-			}
-
-			IDX="${x//\//_____}";
-			IDX="${IDX//-/___}";
-
-			eval DLPM__DEP_ID_LOCAL_RESOLVED_${IDX}=1;
-			DLPM_RESOLVED_FILES="${DLPM_RESOLVED_FILES}${LF}dlpm::${DBFOUND_FILE}";
-			DLPM_DEPENDS_SIZE=$((DLPM_DEPENDS_SIZE+DBFOUND_SIZE));
-
-			for y in ${DBFOUND_DEPENDS}; do
-				AddDependsList "${y}"
+			FindDESLBuilder "${x}" && { # /DLPDir
+				AddResolveListFromFile "${DESLBDLP_FILE}" || return ${?};
+				DLPM_LIST_FILES="${DLPM_LIST_FILES:+${DLPM_LIST_FILES}${LF}}file://${DESLBDLP_FILE}";
 				DepAdded=1;
-			done
+				continue;
+			}
+
+			FindDB "${x}" && {
+				DLPM_LIST_FILES="${DLPM_LIST_FILES:+${DLPM_LIST_FILES}${LF}}${DBFOUND_FILE}";
+				DLPM_DEPENDS_SIZE=$((DBFOUND_SIZE+DLPM_DEPENDS_SIZE));
+
+				for y in ${DBFOUND_DEPENDS}; do
+					DLPM_LIST_ID="${y}";
+					DepAdded=1;
+				done
+				continue;
+			}
+
+			[ "${ARGS_OPT_LONG_IgnoreDepends}" = '' ] && {
+				[ "${ARGS_OPT_LONG_Quiet:-0}" = '0' ] && error "Package '${x}' is not found."
+				return 1;
+			}
+
+			warning "Package '${x}' is not found."
+			continue;
 		done
 
 	done
@@ -488,7 +445,7 @@ ResolveDepends(){
 	return 0;
 }
 
-FindLocal(){
+FindAlready(){
 	local R IDX;
 	local ID="${1}";
 
@@ -523,7 +480,7 @@ FindDB(){ # 1 ID
 		DLPM_FINDDB_INIT=1
 	}
 
-	local x y P DB;
+	local x y N P DB;
 	for x in `ConfigListWithValue DLPMReps::Repositories`; do
 		N="${x%%=*}";
 		P="${x#*=}";
@@ -580,7 +537,7 @@ FindDESLBuilder(){
 	local DLP_DIR_LOCAL="${ARGS_OPT_LONG_DLPDir:-${DLP_DIR:--}}";
 
 	[ "${DLP_DIR_LOCAL:--}" = '-' ] && {
-		return 0;
+		return 1;
 	}
 
 	# Not local
@@ -596,6 +553,72 @@ FindDESLBuilder(){
 	done
 
 	return 1;
+}
+
+DLPMMakeDB(){
+	# ID | Version | Revision | Platform | System| Size | FileName
+	local DB="${ARGS_OPT_LONG_Dir}/DESLPackage.db"
+	local S256="${ARGS_OPT_LONG_Dir}/DESLPackage.sha256"
+	echo '[DB]' > "${DB}" || return ${?};
+	echo 'Version	= 1' >> "${DB}" || return ${?};
+	echo '' >> "${DB}" || return ${?};
+
+
+	echo '[Packages]' >> "${DB}" || return ${?};
+
+	[ "${ARGS_OPT_LONG_SHA256:+1}" = '1' ] && {
+		echo '[SHA256]' > "${S256}" || return ${?};
+	}
+
+ 	local x xx y;
+	local ID PF SYS VER REV SIZE DEP FN SHA256;
+	for x in `find "${ARGS_OPT_LONG_Dir}" -name "*.dlp"`; do
+		local xx="${x//${ARGS_OPT_LONG_Dir}/}";
+		info "Reading: '${xx}'..."
+
+		cpio -F "${x}" -H newc -i --to-stdout DESLPackage.def > "${TMPDIR}/DESLPackage.def" 2>/dev/null || {
+			warning "Failed to open DESLPackage.def in '${x}'"
+			continue;
+		}
+
+		ConfigLoad "${TMPDIR}/DESLPackage.def" DLPackage > /dev/null || return ${?};
+		ConfigGet ID 'DLPackage::DLPInstaller:ID' '-'
+		ConfigGet PF 'DLPackage::DLPInstaller:Platform' '-'
+		ConfigGet SYS 'DLPackage::DLPInstaller:System' '-'
+		ConfigGet VER 'DLPackage::DESLPackage:Version' '0'
+		ConfigGet REV 'DLPackage::DESLPackage:Revision' '0'
+		ConfigGet SIZE 'DLPackage::Data:Size' '0'
+
+		local Depends=`ConfigFileList "${TMPDIR}/DESLPackage.def" 'Depends'`;
+		local RuntimeDepends=`ConfigFileList "${TMPDIR}/DESLPackage.def" 'RuntimeDepends'`;
+		local DEP='';
+		for y in ${Depends} ${RuntimeDepends}; do
+			DEP="${DEP:+${DEP},}${y}";
+		done
+
+		[ "${ARGS_OPT_LONG_SHA256:+1}" = '1' ] && {
+			info " Calculating SHA256..."
+			SHA256=`cat ${x} | sha256sum`;
+			set -- ${SHA256}
+			SHA256="${1}";
+			echo "${xx##/}|${SHA256}" >> "${S256}" || return ${?};
+		}
+
+		echo "${ID}|${PF}|${SYS}|${VER}|${REV}|${SIZE}|${DEP}|${xx##/}" >> "${DB}" || return ${?};
+	done
+
+	cat "${DB}"
+
+	[ "${ARGS_OPT_LONG_SHA256:+1}" = '1' ] && {
+		info " Calculating SHA256 of Database..."
+		SHA256=`cat ${DB} | sha256sum`;
+		set -- ${SHA256}
+		SHA256="${1}";
+		echo "DESLPackage.db|${SHA256}" >> "${S256}" || return ${?};
+		cat "${S256}"
+	}
+
+	return 0;
 }
 
 error(){

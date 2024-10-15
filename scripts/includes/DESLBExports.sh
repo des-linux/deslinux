@@ -19,7 +19,7 @@ BOOTSTRAP_ARCH			Detected architecture of current machine
 BOOTSTRAP_ARCH_ORG		Detected architecture of current machine (Unmodified)
 BOOTSTRAP_ARCH_ORG_T3		Detected system type of current machine
 BUILD_DIR			Directory for building apps
-BUILD_DIR_BOOTSTRAP		Directory for building bootstrap toolchains
+BUILD_BOOTSTRAP_DIR		Directory for building bootstrap toolchains
 BUILD_ROOT_DIR			Root directory for building
 CORETOOLS_DIR			Directory of core tools
 CORE_ROOTFS_DIR			Root directory of DESLinux boot image (RAM)

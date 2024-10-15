@@ -3,8 +3,9 @@
 # Always run as vroot with cleaned environemnt variable (But not in DESLBWorld)
 
 DESLB_Main(){
-
-	[ "${DESLB_STARTUP_PATH}" = '' ] && DESLB_STARTUP_PATH="${PATH}";
+	[ "${DESLB_STARTUP_PATH}" = '' ] && {
+		export DESLB_STARTUP_PATH="${PATH}";
+	}
 	PATH="${DESLB_STARTUP_PATH}";
 
 	# DESLBuilderX marker
@@ -72,23 +73,29 @@ DESLB_Main(){
 		AddPATH "${TOOLCHAIN_DIR}" "${TOOLCHAIN_USR_DIR}" "${TOOLCHAIN_TOOLS_DIR}" "${TOOLCHAIN_LOCAL_DIR}" "${TOOLCHAIN_BUILDER_DIR}"
 
 		[ ! -e '/lib' ] && [ ! -L '/lib' ] && ln -s "${TOOLCHAIN_BUILDER_DIR}/lib" /lib
-		[ ! -e '/usr' ] && [ ! -L '/usr' ] && ln -s "${TOOLCHAIN_BUILDER_DIR}/usr" /usr
-	} || {
-		PATH="${PATH}:${BOOTSTRAP_DIR}/bin";
+		[ ! -e '/usr' ] && [ ! -L '/usr' ] && ln -s "${TOOLCHAIN_TOOLS_DIR}" /usr
 	}
 
 	case "${PACKAGE_ROOT_CATEGORY}" in
 		'toolchain-base' )
 			# Add bootstrap
 			AddPATH "${BOOTSTRAP_DIR}"
-			AddPATH "${BASE_TOOLCHAIN_DIR}"
+			AddPATH "${TOOLCHAIN_BASEARCH_DIR}"
 		;;
 		'toolchain' )
 			# Add bootstrap
-			AddPATH "${BASE_TOOLCHAIN_DIR}"
+			AddPATH "${TOOLCHAIN_BASEARCH_DIR}"
 			AddPATH "${BOOTSTRAP_DIR}"
 		;;
 	esac
+
+	# Exception: Building 'make' requires 'Make', 'MakeCPIO' requires 'MakeCPIO'.
+	case "${DESL_BUILD_PACKAGE}" in
+		'toolchain/tools' ) export DESL_BUILDING_CORE_TOOLS=1;;
+	esac
+	[ "${DESL_BUILDING_CORE_TOOLS:-0}" = '1' ] && {
+		AddPATH "${BOOTSTRAP_DIR}";
+	}
 
 	# Command
 	. "${INCLUDES_DIR}/DESLBuilder.sh"
@@ -161,6 +168,9 @@ GetTargetArch(){
 		DESL_INTERNAL_TOOLS=1;
 	}
 
+	# Backup
+	export DESL_ARCH_ORG=${DESL_ARCH};
+
 	# Convert DESL_ARCH to internal format
 	export DESL_ARCH_BUILD=${DESL_ARCH};
 	case ${DESL_ARCH_BUILD} in
@@ -201,6 +211,15 @@ GetTargetArch(){
 	ExportDESLTarget ${DESL_ARCH_BUILD};
 	export DESL_TARGET=${NEW_DESL_TARGET};
 
+	# Static build
+	[ ! "${ARGS_OPT_LONG_Static}${ARGS_OPT_LONG_s}" = '' ] && {
+		export DESLB_STATIC=1;
+		DESL_TARGET="${DESL_TARGET}_static";
+		DESL_ARCH="${DESL_ARCH}_s";
+	} || {
+		export DESLB_STATIC=0;
+	}
+
 	# Generate 'BUILDER_TARGET' by 'BUILDER_ARCH'
 	ExportDESLTarget ${BUILDER_ARCH_BUILD};
 	export BUILDER_TARGET=${NEW_DESL_TARGET};
@@ -212,7 +231,6 @@ ExportDESLTarget(){
 	local OFS=${IFS};
 	local IFS='-';
 	set -- ${*}
-
 	case "${*}" in
 		*_hf	) NEW_DESL_TARGET="${1%_*}-des-linux_hf";;
 		*_sf	) NEW_DESL_TARGET="${1%_*}-des-linux_sf";;
@@ -232,7 +250,7 @@ ExportDirsPath(){
 	export INCLUDES_DIR="${SCRIPTS_DIR}"/includes;
 
 	export BUILD_DIR="${BUILD_ROOT_DIR}/desl-${DESL_ARCH}";
-	export BUILD_DIR_BOOTSTRAP="${BUILD_ROOT_DIR}/bootstrap-${BOOTSTRAP_ARCH}/builder-${BUILDER_ARCH}";
+	export BUILD_BOOTSTRAP_DIR="${BUILD_ROOT_DIR}/bootstrap-${BOOTSTRAP_ARCH}/builder-${BUILDER_ARCH}";
 	export SHARED_SOURCE_ROOT_DIR="${BUILD_ROOT_DIR}/shared";
 
 	export BOOTSTRAP_BASE_DIR="${BOOTSTRAP_ROOT_PREFIX}-${BOOTSTRAP_ARCH}";
@@ -253,9 +271,9 @@ ExportDirsPath(){
 
 	export IMAGE_DIR="${IMAGE_ROOT_DIR}/desl-${DESL_ARCH}";
 	export DLP_DIR="${IMAGE_DIR}/packages";
-	export DLP_DIR_BUILDER="${IMAGE_ROOT_DIR}/desl-${BUILDER_ARCH}/packages";
-	export DLP_DIR_BASE="${IMAGE_ROOT_DIR}/builder-${BUILDER_ARCH}/base-${BASE_ARCH}/packages"
-	export DLP_DIR_TOOLCHAIN="${IMAGE_ROOT_DIR}/builder-${BUILDER_ARCH}/desl-${DESL_ARCH}/packages"
+	export DLP_BUILDER_DIR="${IMAGE_ROOT_DIR}/desl-${BUILDER_ARCH}/packages";
+	export DLP_BASEARCH_DIR="${IMAGE_ROOT_DIR}/builder-${BUILDER_ARCH}/base-${BASE_ARCH}/packages"
+	export DLP_TOOLCHAIN_DIR="${IMAGE_ROOT_DIR}/builder-${BUILDER_ARCH}/desl-${DESL_ARCH}/packages"
 
 	export IMAGE_BOOTSTRAP_DIR="${IMAGE_ROOT_DIR}/bootstrap-${BOOTSTRAP_ARCH}";
 	export IMAGE_BUILDER_DIR="${IMAGE_ROOT_DIR}/desl-${BUILDER_ARCH}";
@@ -297,12 +315,12 @@ ExportByArgs(){
 
 	[ ! "${ARGS_OPT_LONG_Static}" = '' ] && DESL_FORCE_STATIC=1;
 
-	[ "${ARGS_OPT_LONG_help}" = "-" ] && ARGS_TARGET=help;
-	[ "${ARGS_OPT_LONG_h}" = "-" ] && ARGS_TARGET=help;
-	[ "${ARGS_OPT_SHORT_h}" = "-" ] && ARGS_TARGET=help;
+	[ "${ARGS_OPT_LONG_help}" = "-" ] && ARGS_TARGET_EX='help';
+	[ "${ARGS_OPT_LONG_h}" = "-" ] && ARGS_TARGET_EX='help';
+	[ "${ARGS_OPT_SHORT_h}" = "-" ] && ARGS_TARGET_EX='help';
 
 	# /M: option to override mode
-	[ ! "${ARGS_OPT_LONG_M}" = '' ] && ARGS_TARGET=${ARGS_OPT_LONG_M:1};
+	[ ! "${ARGS_OPT_LONG_M}" = '' ] && ARGS_TARGET_EX="${ARGS_OPT_LONG_M:1}";
 
 	return 0;
 }
@@ -320,7 +338,6 @@ SetupToolchainSharedDir(){
 		warning "Initializing dlpm shared directory."
 		rm -rf "${TOOLCHAIN_USER_BASE_DIR}"
 		rm -rf "${TOOLCHAIN_TOOLS_DIR}"
-		rm -rf "${BOOTSTRAP_DIR}/usr"
 	}
 
 	local DLPI_ARCH_LOCAL="${DESL_ARCH}";
@@ -331,17 +348,17 @@ SetupToolchainSharedDir(){
 		TOOLCHAIN_ARCH_LOCAL="${BUILDER_ARCH_ORG}";
 	}
 
-	[ ! -e "${TOOLCHAIN_DIR}" ] && {
+	[ ! -e "${TOOLCHAIN_DIR}/.dlp/dlp.conf" ] && {
 		mkdir -p "${TOOLCHAIN_DIR}" || return ${?};
 		RunScript "${SCRIPTS_DIR}/dlpi" /Initialize /Root:${TOOLCHAIN_DIR} /Platform:${TOOLCHAIN_ARCH_LOCAL} /System:DESLBuilder || return ${?};
 	}
 
-	[ ! -e "${TOOLCHAIN_USR_DIR}" ] && {
+	[ ! -e "${TOOLCHAIN_USR_DIR}/.dlp/dlp.conf" ] && {
 		mkdir -p "${TOOLCHAIN_USR_DIR}" || return ${?};
 		RunScript "${SCRIPTS_DIR}/dlpi" /Initialize /Root:${TOOLCHAIN_USR_DIR} /Platform:${DLPI_ARCH_LOCAL} ${System} || return ${?};
 	}
 
-	[ ! -e "${TOOLCHAIN_TOOLS_DIR}" ] && {
+	[ ! -e "${TOOLCHAIN_TOOLS_DIR}/.dlp/dlp.conf" ] && {
 		mkdir -p "${TOOLCHAIN_TOOLS_DIR}/bin" || return ${?};
 		RunScript "${SCRIPTS_DIR}/dlpi" /Initialize /Root:${TOOLCHAIN_TOOLS_DIR} /Platform:${BUILDER_ARCH} ${System} || return ${?};
 	}
@@ -375,15 +392,21 @@ VerifyArch(){
 	local a;
 	local OFS=${IFS};
 	local IFS;
-	[ "${SKIP_ARCH_VERIFY}" != '' ] && {
+	local DESL_ARCH_LOCAL="${DESL_ARCH}";
+
+	[ ! "${SKIP_ARCH_VERIFY}" = '' ] && {
 		return 0;
+	}
+
+	[ "${DESLB_STATIC}" = '1' ] && {
+		DESL_ARCH_LOCAL="${DESL_ARCH%_s}";
 	}
 
 	IFS=$'\n\r';
 	for a in `ConfigFileList "${SCRIPTS_DIR}/Arch.lst" Arch`; do
 		case "${a}" in
 			*=*,* )
-				[ "${a%%=*}" = "${DESL_ARCH}" ] && {
+				[ "${a%%=*}" = "${DESL_ARCH_LOCAL}" ] && {
 					export BASE_ARCH_ARGS="${a#*=}";
 					export BASE_ARCH="${BASE_ARCH_ARGS%%,*}";
 					BASE_ARCH="${BASE_ARCH// /}";
@@ -400,7 +423,7 @@ VerifyArch(){
 					ExportDESLTarget ${BASE_ARCH_BUILD};
 					export BASE_TARGET=${NEW_DESL_TARGET};
 
-					export BASE_TOOLCHAIN_DIR="${TOOLCHAIN_ROOT_DIR}/builder-${BUILDER_ARCH}/base-${BASE_ARCH}";
+					export TOOLCHAIN_BASEARCH_DIR="${TOOLCHAIN_ROOT_DIR}/builder-${BUILDER_ARCH}/base-${BASE_ARCH}";
 
 					return 0;
 				}
@@ -429,7 +452,7 @@ ChangeEnvIfPackageIsBootstrap(){
 	DESL_ARCH_BUILD="${BOOTSTRAP_ARCH_ORG}";
 	DESL_ARCH_BUILD_ORG="${BOOTSTRAP_ARCH_ORG}";
 
-	BUILD_DIR=${BUILD_DIR_BOOTSTRAP};
+	BUILD_DIR=${BUILD_BOOTSTRAP_DIR};
 	DLP_DIR=${DLP_BOOTSTRAP_DIR};
 
 	TOOLCHAIN_DIR="${BOOTSTRAP_DIR}";
@@ -451,9 +474,9 @@ ChangeEnvIfPackageIsToolchainBase(){
 			DESL_ARCH_BUILD="${BASE_ARCH_BUILD}";
 
 			BUILD_DIR="${BUILD_ROOT_DIR}/builder-${BUILDER_ARCH}/base-${BASE_ARCH}";
-			DLP_DIR="${DLP_DIR_BASE}";
+			DLP_DIR="${DLP_BASEARCH_DIR}";
 
-			TOOLCHAIN_DIR="${BASE_TOOLCHAIN_DIR}";
+			TOOLCHAIN_DIR="${TOOLCHAIN_BASEARCH_DIR}";
 			TOOLCHAIN_USER_BASE_DIR="${TOOLCHAIN_DIR}";
 			TOOLCHAIN_USR_DIR="${TOOLCHAIN_USER_BASE_DIR}";
 			TOOLCHAIN_LOCAL_DIR="${TOOLCHAIN_USER_BASE_DIR}";
@@ -471,7 +494,7 @@ ChangeEnvIfPackageIsToolchain(){
 	case "${DESL_BUILD_PACKAGE}" in
 		toolchain/* | toolchain )
 			BUILD_DIR="${BUILD_ROOT_DIR}/builder-${BUILDER_ARCH}/desl-${DESL_ARCH}";
-			DLP_DIR="${DLP_DIR_TOOLCHAIN}";
+			DLP_DIR="${DLP_TOOLCHAIN_DIR}";
 
 			INTERNAL_NO_LINK_USR_DIR=1;
 		;;
@@ -492,12 +515,14 @@ CheckPrerequisites(){
 	export DESLB_SKIP_PREREQ=1;
 
 	. ${INCLUDES_DIR}/CheckPrerequisites.sh
-	RunCheckPrerequisites || return ${?};
+	RunCheckPrerequisites || {
+		error "Failed to solve prerequisites"
+		return 1;
+	}
 }
 
 RunMode(){
-
-	case "${ARGS_TARGET}" in
+	case "${ARGS_TARGET_EX}" in
 
 		# Standard options
 		'Build' | '' ) # Prepare,Config,Compile,Install
@@ -621,7 +646,7 @@ RunMode(){
 			return 0;;
 
 		* )
-			error "Unknown mode '${ARGS_TARGET}' specified."
+			error "Unknown mode '${ARGS_TARGET_EX}' specified."
 			warning 'You must specify the mode option in the first argument.'
 			return 127;
 			;;

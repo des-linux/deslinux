@@ -97,7 +97,7 @@ ParseArgs(){
 				A="${A:1}";
 				eval ARGS_OPT_LONG_${A//-/_}='-';
 				[ "${ARGS_FIRST_CMD}" = '' ] && ARGS_FIRST_CMD=${A};
-				[ "${ARGS_FIRST_CMD_EX}" = '' ] && [ "${A:3}" != '' ] && ARGS_FIRST_CMD_EX=${A};
+				[ "${ARGS_FIRST_CMD_EX}" = '' ] && [ ! "${A:3}" = '' ] && ARGS_FIRST_CMD_EX=${A};
 				continue;;
 
 			--*=*)
@@ -148,6 +148,7 @@ ParseArgs(){
 	done
 
 	[ "${ARGS_TARGET}" = '' ] && ARGS_TARGET="${ARGS_FIRST_CMD}";
+	[ "${ARGS_TARGET_EX}" = '' ] && ARGS_TARGET_EX="${ARGS_FIRST_CMD_EX}";
 
 	return 0;
 }

@@ -5,8 +5,10 @@
 #//	http://xprj.net/
 #//////////////////////////////////////////////////
 
-DESLB_SUPPORT_NATIVE_ISOLATION=0
+DESLB_SUPPORT_NATIVE_ISOLATION=1
 DESLB_SKIP_CONFIG_IF_EXISTS=Makefile
+
+# DSH_ functions are defined in DESLBScriptHelper
 
 DESLBInitialize(){
 	:
@@ -17,28 +19,21 @@ DESLBFinalize(){
 }
 
 DESLBConfig(){
-	ExportToolchainInfo
-
-	[ "${DESLB_SUPPORT_NATIVE_ISOLATION:-0}" = '1' ] && {
-		"${SHARED_SOURCE_DIR}/configure" --build=${BUILDER_TARGET} --host=${DESL_TARGET}
-		return ${?};
-	}
-
-	./configure --build=${BUILDER_TARGET} --host=${DESL_TARGET}
-	return ${?};
+	DSH_configure || return ${?};
+	return 0;
 }
 
 DESLBCompile(){
-	${DESL_MAKE}
-	return ${?};
+	DSH_make || return ${?};
+	return 0;
 }
 
 DESLBInstall(){
-	${DESL_MAKE} install DESTDIR="${DLP_INSTALL_DIR}" prefix='/'
-	return ${?};
+	DSH_makeInstall || return ${?};
+	return 0;
 }
 
 DESLBClean(){
-	make clean
-	return ${?};
+	DSH_make clean
+	return 0;
 }

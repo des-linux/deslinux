@@ -21,8 +21,12 @@ BuilderRunScriptEx(){
 	return 127;
 }
 
-BuilderInitialize(){
+BuilderStartMessage(){
 	infoex "[${DESLB_NESTLV}] ${DESL_BUILD_PACKAGE}: ${1}"
+	return 0;
+}
+
+BuilderInitialize(){
 	PKG_FILE="${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def";
 	PackageLoad "${DESL_BUILD_PACKAGE}" "${PKG_FILE}";
 	return ${?};
@@ -52,7 +56,7 @@ BuilderDownload(){
 
 	BuilderSolveDepends_SourceOnly /Download || return ${?};
 
-	vinfo ' Downloading...'
+	vinfo ' Checking for download necessity...'
 	[ "${Package_Source_SaveTo}" = '' ] && {
 		vinfo '  No source file required'
 		return 0;
@@ -64,6 +68,8 @@ BuilderDownload(){
 		vinfo '  Already downloaded'
 		return 0;
 	}
+
+	BuilderStartMessage 'Download'
 
 	local PKG_ARC_URL="${Package_Source_BaseURI}/${Package_Source_File}"
 	local PKG_ARC_DL="${PKG_ARC_FILE}.dl"
@@ -91,6 +97,13 @@ BuilderDownload(){
 		local IFS=' ';
 		set -- ${PKG_ARC_DL_SHA256}
 		PKG_ARC_DL_SHA256="${1}";
+
+		[ "${Package_Source_SHA256}" = '?' ] && {
+			error " SHA256: ${PKG_ARC_DL_SHA256}"
+			sleep 1
+			Package_Source_SHA256="${PKG_ARC_DL_SHA256}";
+		}
+
 		[ ! "${PKG_ARC_DL_SHA256}" = "${Package_Source_SHA256}" ] && {
 			error 'Missmatch checksum'
 			error " Downloaded: ${PKG_ARC_DL_SHA256}"
@@ -99,7 +112,6 @@ BuilderDownload(){
 		}
 	}
 	mv "${PKG_ARC_DL}" "${PKG_ARC_FILE}"
-
 
 	return 0;
 }
@@ -112,7 +124,7 @@ BuilderExtract(){
 	mkdir -p "${BUILD_DIR}"
 	mkdir -p "${SHARED_SOURCE_ROOT_DIR}"
 
-	vinfo ' Extracting...'
+	vinfo ' Checking for extract necessity...'
 	case "${Package_Source_BaseURI}" in
 		'' | '-' )
 			vinfo '  No source file required.'
@@ -124,6 +136,8 @@ BuilderExtract(){
 		vinfo '  Already extracted'
 		return 0;
 	}
+
+	BuilderStartMessage 'Extract'
 
 	local PKG_ARC_FILE="${DL_CACHE_DIR}/${Package_Source_SaveTo}"
 	[ ! -e "${PKG_ARC_FILE}" ] && {
@@ -278,12 +292,16 @@ BuilderSolveDepends_BuildOnly(){ # Build:Y, Install:N, Auto-dev:N, ForBuilder:N
 
 BuilderSolveDepends_BuildTools(){ # Build:Y, Install:Y, Auto-dev:N, ForBuilder:Y
 	BuilderSolveDepends 'BuildDepends_BuildTools' 1 1 0 1 || return ${?};
+
 	return 0;
 }
 
 BuilderSolveDepends_Library(){ # Build:Y, Install:N, Auto-dev:Y, ForBuilder:N
 	BuilderSolveDepends 'BuildDepends_Library' 1 1 1 0 || return ${?};
 	BuilderSolveDepends 'BuildDepends_Library' 0 1 0 0 || return ${?};
+
+	BuilderSolveDepends 'Depends' 1 1 1 0 || return ${?};
+	BuilderSolveDepends 'Depends' 0 1 0 0 || return ${?};
 	return 0;
 }
 
@@ -298,14 +316,19 @@ BuilderSolveDepends(){ # Section, F:Build, F:Install, F:AutoDev, InstallTo
 	local L_DLP_DEFAULT="${DLP_DIR}";
 	local L_INSTALL_DEFAULT="${TOOLCHAIN_USR_DIR}";
 	[ "${L_FORBUILDER}" = '1' ] && {
-		L_DLP_DEFAULT="${DLP_DIR_BUILDER}";
+		L_DLP_DEFAULT="${DLP_BUILDER_DIR}";
 		L_INSTALL_DEFAULT="${TOOLCHAIN_BUILDER_DIR}";
+	}
+
+	[ "${L_FORBUILDER}" = '1' ] && {
+		L_INSTALL_DEFAULT="${TOOLCHAIN_TOOLS_DIR}";
 	}
 
 	local x_ORG;
 	local L_ARCH;
 	local L_DLP_DIR;
 	local L_INSTALL_DIR;
+
 	for x in `ConfigFileList "${PKG_FILE}" "${L_SECTION}"`; do
 		L_ARCH='';
 		L_DLP_DIR="${L_DLP_DEFAULT}";
@@ -313,6 +336,11 @@ BuilderSolveDepends(){ # Section, F:Build, F:Install, F:AutoDev, InstallTo
 
 		x_ORG="${x}";
 		[ "${L_AUTODEV}" = '1' ] && x="${x}-dev";
+
+		# Prevent loop (Some packages requires builder's arch version of own in building.)
+		[ "${L_FORBUILDER}" = '1' ] && [ "${x}" = "${DESL_BUILD_PACKAGE}" ] && [ "${DESL_INTERNAL_TOOLS:-0}" = '1' ] && {
+			continue;
+		}
 
 		# Directory patch
 		case "${x}" in
@@ -322,17 +350,19 @@ BuilderSolveDepends(){ # Section, F:Build, F:Install, F:AutoDev, InstallTo
 			;;
 
 			toolchain-base | toolchain-base/* )
-				L_DLP_DIR="${DLP_DIR_BASE}";
-				L_INSTALL_DIR="${BASE_TOOLCHAIN_DIR}";
+				L_DLP_DIR="${DLP_BASEARCH_DIR}";
+				L_INSTALL_DIR="${TOOLCHAIN_BASEARCH_DIR}";
 			;;
 
 			toolchain | toolchain/* )
-				L_DLP_DIR="${DLP_DIR_TOOLCHAIN}";
+				L_DLP_DIR="${DLP_TOOLCHAIN_DIR}";
 				L_INSTALL_DIR="${TOOLCHAIN_DIR}";
 			;;
 
 			* )
-				[ "${L_FORBUILDER}" = '1' ] && L_ARCH='/Arch:BUILD';
+				[ "${L_FORBUILDER}" = '1' ] && {
+					L_ARCH='/Arch:BUILD';
+				}
 			;;
 		esac
 
@@ -349,6 +379,13 @@ BuilderSolveDepends(){ # Section, F:Build, F:Install, F:AutoDev, InstallTo
 					continue
 				}
 			}
+
+			# Re-check installed (May be installed during build by package has same dependency.)
+#			warning "Re-checking: $x in $L_INSTALL_DIR"
+#			RunDLPI /Check /Root:${L_INSTALL_DIR} /ID:${x} && {
+#				warning "SKIP Already installed: $x in $L_INSTALL_DIR"
+#				continue;
+#			}
 
 			# Install DLP
 			[ "${L_INSTALL}" = '1' ] && {

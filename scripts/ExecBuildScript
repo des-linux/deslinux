@@ -35,7 +35,10 @@ RunDESLBScript(){ # mode
 	export CURRENT_PACKAGE_DIR="${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}";
 
 	vinfo "Loading DESLBScript.sh"
-	. "${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLBScript.sh"
+	[ -e "${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLBScript.sh" ] && {
+		vinfo "No DESLBScript.sh found. Using default DESLBSCript.sh"
+		. "${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLBScript.sh"
+	}
 
 	vinfo "Open build / package directory"
 	PrepareBuildDirectory "${CURRENT_BUILD_DIR}" "${SHARED_BUILD_DIR}" || return ${?};
@@ -48,6 +51,7 @@ RunDESLBScript(){ # mode
 				'' )
 					case "${DESLB_SKIP_CONFIG_IF_EXISTS}" in
 						'' | '-' )
+							EBSStartMessage 'Config'
 							DESLBInitialize || return ${?};
 							DESLBConfig || return ${?};
 						;;
@@ -56,12 +60,14 @@ RunDESLBScript(){ # mode
 								info "Already configured. Use '/Reconfig' to reconfigure."
 								return 0;
 							}
+							EBSStartMessage 'Config'
 							DESLBInitialize || return ${?};
 							DESLBConfig || return ${?};
 						;;
 					esac
 				;;
 				'force' )
+					EBSStartMessage 'Config'
 					DESLBInitialize || return ${?};
 					DESLBConfig || return ${?};
 				;;
@@ -70,15 +76,18 @@ RunDESLBScript(){ # mode
 			esac
 		;;
 		Compile )
+			EBSStartMessage 'Compile'
 			DESLBInitialize || return ${?};
 			DESLBCompile || return ${?};
 		;;
 		Install )
+			EBSStartMessage 'Install'
 			DESLBInitialize || return ${?};
 			DESLBInstall || return ${?};
 			MakeDLP || return ${?};
 		;;
 		Clean )
+			EBSStartMessage 'Clean'
 			DESLBClean || return ${?};
 		;;
 		*)
@@ -101,7 +110,7 @@ PrepareBuildDirectory(){ # build_dir, shared_dir
 	export SHARED_SOURCE_DIR='-';
 	[ ! "${Package_ImportCoreInfo:--}" = '-' ] && {
 		vinfo 'This package imports CoreInfo'
-		DESLBP_GetSharedDirectory "${Package_ImportCoreInfo}";
+		DSH_GetSharedDirectory "${Package_ImportCoreInfo}";
 
 		R_DIR="${SHARED_SOURCE_DIR}";
 	}
@@ -199,6 +208,7 @@ MakeDLP(){
 		for x in `find "${DLP_INSTALL_DIR}" -name "*.a"`; do
 			p="${DLP_ROOT_DIR}/${x#${DLP_INSTALL_DIR}}";
 			mkdir -p "${p%/*}" || return ${?};
+			"${DESL_TARGET}-strip" --strip-unneeded "${x}" 2>/dev/null
 			mv "${x}" "${p}" || return ${?};
 			M=1;
 		done
@@ -224,6 +234,10 @@ MakeDLP(){
 	CheckEmptyDir "${DLP_INSTALL_DIR}" && {
 		warning "No main files found to install."
 	} || {
+
+		for x in `find "${DLP_INSTALL_DIR}" -type f`; do
+			"${DESL_TARGET}-strip" --strip-unneeded "${x}" 2>/dev/null
+		done
 		RunDLPI /Create /Dir:"${DLP_INSTALL_DIR}" /PackageDef:"${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def" /Platform:${DESL_ARCH_LOCAL} /ID:${Package_Category}/${PKGID_LOCAL} /SaveTo:"${DLP_DIR}/${Package_Category}/${PKGID_LOCAL}_${Package_ID_Suffix}_${DESL_ARCH_LOCAL}.dlp" ${BaseSystem} || return ${?};
 	}
 
@@ -243,6 +257,11 @@ CheckEmptyDir(){
 	set -- ${1}/*
 	[ "${P}/*" = "${1}" ] && return 0;
 	return 1;
+}
+
+EBSStartMessage(){
+	infoex "${1}"
+	return 0;
 }
 
 error(){

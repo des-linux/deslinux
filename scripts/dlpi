@@ -54,12 +54,12 @@ EnterSession(){
 	local TMPDIR="/tmp/DLPI_${RANDOM}_${RANDOM}_${RANDOM}_${RANDOM}_${RANDOM}/";
 	mkdir -p "${TMPDIR}" || return ${?};
 
-	info 'Starting DLPI session'
+	# info 'Starting DLPI session'
 
 	"${1}" "${TMPDIR}"
 	local R=${?};
 
-	info "DLPI session exited with status code: ${R}"
+	# info "DLPI session exited with status code: ${R}"
 
 	rm -rf "${TMPDIR}" || return ${?};
 	return ${R};
@@ -101,10 +101,10 @@ DLPIInstall(){ # /Install /File:<DLP Path> [/Root:<DLP Root>]
 
 
 	[ -e "${DLPI_DIR}/installed/${ID//\//_____}.dlpi" ] && {
-		[ "${ARGS_OPT_LONG_Force:+1}" = '1' ] && return 0;
+		[ "${ARGS_OPT_LONG_Force:-0}" = '1' ] && return 0;
 
-		error "Package '${ID}' is already installed."
-		return 1;
+		info "Package '${ID}' is already installed."
+		return 0;
 	}
 
 	[ "${ARGS_OPT_LONG_IgnorePlatform}" = '' ] && {
@@ -205,9 +205,9 @@ DLPIRemove(){ # /Remove /ID:<DLP ID> [/Root:<DLP Root>] [/Force]
 	local ID="${ARGS_OPT_LONG_ID}";
 	local DLPI_FILE="${DLPI_DIR}/installed/${ID//\//_____}.dlpi";
 	[ ! -e "${DLPI_FILE}" ] && {
-		[ "${ARGS_OPT_LONG_Force:+1}" = '1' ] && return 0;
-		error "Package '${ID}' is not installed."
-		return 1;
+		[ "${ARGS_OPT_LONG_Force:-0}" = '1' ] && return 0;
+		info "Package '${ID}' is not installed."
+		return 0;
 	}
 
 	local Files=`ConfigFileList "${DLPI_FILE}" 'Files'`;

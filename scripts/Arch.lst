@@ -1,8 +1,8 @@
 [Arch]
 //ArchName		= BaseArch, Extra gcc options
-x64				= x64, -m64 -march=nehalem -mmusl
-x86				= x64, -m32 -march=nehalem -mmusl
-i686			= x64, -m32 -march=pentium4 -mmusl
+x64			= x64, -m64 -march=nehalem -mmusl
+x86			= x64, -m32 -march=nehalem -mmusl
+
 i386			= x64, -m32 -march=i386 -mmusl
 
 ia64			= ia64, -mmusl
@@ -23,9 +23,9 @@ aarch64eb		= aarch64, -mbig-endian -mmusl
 aarch32			= arm, -march=armv7 -mabi=aapcs-linux -mlittle-endian -mfloat-abi=soft -mmusl
 aarch32_hf		= arm, -march=armv7 -mabi=aapcs-linux -mlittle-endian -mfloat-abi=softfp -mmusl
 aarch32eb		= arm, -march=armv7 -mabi=aapcs-linux -mbig-endian -mbe8 -mfloat-abi=soft -mmusl
-aarch32eb_hf	= arm, -march=armv7 -mabi=aapcs-linux -mbig-endian -mbe8 -mfloat-abi=softfp -mmusl
+aarch32eb_hf		= arm, -march=armv7 -mabi=aapcs-linux -mbig-endian -mbe8 -mfloat-abi=softfp -mmusl
 
-arm				= arm, -march=armv4 -mabi=aapcs-linux -mlittle-endian -mfloat-abi=soft -mmusl
+arm			= arm, -march=armv4 -mabi=aapcs-linux -mlittle-endian -mfloat-abi=soft -mmusl
 arm_hf			= arm, -march=armv4 -mabi=aapcs-linux -mlittle-endian -mfloat-abi=softfp -mmusl
 armeb			= arm, -march=armv4 -mabi=aapcs-linux -mbig-endian -mbe8 -mfloat-abi=soft -mmusl
 armeb_hf		= arm, -march=armv4 -mabi=aapcs-linux -mbig-endian -mbe8 -mfloat-abi=softfp -mmusl
@@ -36,10 +36,9 @@ loongarch64		= loongarch64, -mmusl
 [Patch]
 x86_*			= x86_
 x64_*			= x86_64_
-aarch32			= arm
-aarch32*		= arm
+aarch32			= armv7
+aarch32*		= armv7
 aarch64eb		= aarch64_be
-
+arm			= armv4
 
 [User]
-

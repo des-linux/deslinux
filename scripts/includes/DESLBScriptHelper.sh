@@ -8,8 +8,8 @@
 # Helper functions can call from DESLBScript.sh
 
 export DESL_MAKE="make ${MAKE_OPT}"
-export DESL_MAKE_INSTALL="make DESTDIR=${DLP_INSTALL_DIR} prefix=/"
-
+export DESL_MAKE_INSTALL="make DESTDIR=${DLP_INSTALL_DIR} prefix=/ PREFIX=/"
+export DESL_CONFIGURE="configure --build=${BUILDER_TARGET} --host=${DESL_TARGET} --prefix=/usr";
 
 ToolchainDB(){
 cat <<"EOF";
@@ -39,7 +39,7 @@ XX	g++
 EOF
 }
 
-ExportToolchainInfo(){
+DSH_ExportToolchainInfo(){
 	local x;
 	local IFS=$'\n\r';
 	local PROGS='';
@@ -63,23 +63,54 @@ ExportToolchainInfo(){
 	return 0;
 }
 
-makeX(){
-	ExportToolchainInfo
-	${DESL_MAKE} ${DESL_TOOLCHAIN_PROGS} "${@}" || return ${?};
+
+DSH_make(){
+	${DESL_MAKE} "${@}" || return ${?};
+	return 0;
+}
+DSH_makeEx(){
+	DSH_ExportToolchainInfo
+	DSH_make ${DESL_TOOLCHAIN_PROGS} "${@}" || return ${?};
 	return 0;
 }
 
-DESLBP_GetSharedDirectory(){ # package ID
+DSH_makeInstall(){
+	DSH_make install DESTDIR="${DLP_INSTALL_DIR}" prefix='/' PREFIX='/' "${@}" || return ${?};
+	return 0;
+}
+
+DSH_makeInstallEx(){
+	DSH_makeEx install DESTDIR="${DLP_INSTALL_DIR}" prefix='/' PREFIX='/' "${@}" || return ${?};
+	return 0;
+}
+
+DSH_configure(){
+	[ "${DESLB_SUPPORT_NATIVE_ISOLATION:-0}" = '1' ] && {
+		${SHARED_SOURCE_DIR}/${DESL_CONFIGURE} "${@}" || return ${?};
+		return 0;
+	}
+
+	./${DESL_CONFIGURE} "${@}" || return ${?};
+	return 0;
+}
+
+DSH_configureEx(){
+	DSH_ExportToolchainInfo
+	DSH_configure ${DESL_TOOLCHAIN_PROGS} "${@}" || return ${?};
+	return 0;
+}
+
+DSH_GetSharedDirectory(){ # package ID
 	PackageLoad "${1}" "${PACKAGES_DIR}/${1}/DESLPackage.def" GSD || return ${?};
 	SHARED_SOURCE_DIR="${SHARED_SOURCE_ROOT_DIR}/${GSD_Package_Source_RootDir}"
 	return 0;
 }
 
-DESLBP_OpenBuildDirectory(){ # package ID
+DSH_OpenBuildDirectory(){ # package ID
 	:
 }
 
-DESLBP_CloseBuildDirectory(){ # package ID
+DSH_CloseBuildDirectory(){ # package ID
 	:
 }
 
