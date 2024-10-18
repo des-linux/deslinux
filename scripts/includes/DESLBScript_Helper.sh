@@ -7,9 +7,8 @@
 
 # Helper functions can call from DESLBScript.sh
 
-export DESL_MAKE="make ${MAKE_OPT}"
-export DESL_MAKE_INSTALL="make DESTDIR=${DLP_INSTALL_DIR} prefix=/ PREFIX=/"
-export DESL_CONFIGURE="configure --build=${BUILDER_TARGET} --host=${DESL_TARGET} --prefix=/usr";
+export ARGS_MAKE_INSTALL="DESTDIR=${DLP_INSTALL_DIR} prefix=/ PREFIX=/"
+export ARGS_CONFIGURE="--build=${BUILDER_TARGET} --host=${DESL_TARGET} --prefix=/usr";
 
 ToolchainDB(){
 cat <<"EOF";
@@ -53,10 +52,14 @@ DSH_ExportToolchainInfo(){
 		PROGS="${PROGS} ${x%%	*}_FOR_BUILD=${BUILDER_TARGET}-${x#*	}"
 		PROGS="${PROGS} BUILD_${x%%	*}=${BUILDER_TARGET}-${x#*	}"
 		PROGS="${PROGS} HOST_${x%%	*}=${BUILDER_TARGET}-${x#*	}"
+		PROGS="${PROGS} BUILD${x%%	*}=${BUILDER_TARGET}-${x#*	}"
+		PROGS="${PROGS} HOST${x%%	*}=${BUILDER_TARGET}-${x#*	}"
 
 		export ${x%%	*}_FOR_BUILD="${BUILDER_TARGET}-${x#*	}"
 		export BUILD_${x%%	*}="${BUILDER_TARGET}-${x#*	}"
 		export HOST_${x%%	*}="${BUILDER_TARGET}-${x#*	}"
+		export BUILD${x%%	*}="${BUILDER_TARGET}-${x#*	}"
+		export HOST${x%%	*}="${BUILDER_TARGET}-${x#*	}"
 	done
 
 	export DESL_TOOLCHAIN_PROGS="${PROGS}";
@@ -65,32 +68,33 @@ DSH_ExportToolchainInfo(){
 
 
 DSH_make(){
-	${DESL_MAKE} "${@}" || return ${?};
+	make ${ARGS_MAKE_CORE} "${@}" || return ${?};
 	return 0;
 }
+
 DSH_makeEx(){
-	DSH_ExportToolchainInfo
+	DSH_ExportToolchainInfo;
 	DSH_make ${DESL_TOOLCHAIN_PROGS} "${@}" || return ${?};
 	return 0;
 }
 
 DSH_makeInstall(){
-	DSH_make install DESTDIR="${DLP_INSTALL_DIR}" prefix='/' PREFIX='/' "${@}" || return ${?};
+	DSH_make install ${ARGS_MAKE_INSTALL} "${@}" || return ${?};
 	return 0;
 }
 
 DSH_makeInstallEx(){
-	DSH_makeEx install DESTDIR="${DLP_INSTALL_DIR}" prefix='/' PREFIX='/' "${@}" || return ${?};
+	DSH_makeEx install ${ARGS_MAKE_INSTALL} "${@}" || return ${?};
 	return 0;
 }
 
 DSH_configure(){
 	[ "${DESLB_SUPPORT_NATIVE_ISOLATION:-0}" = '1' ] && {
-		${SHARED_SOURCE_DIR}/${DESL_CONFIGURE} "${@}" || return ${?};
+		${SHARED_SOURCE_DIR}/configure ${ARGS_CONFIGURE} "${@}" || return ${?};
 		return 0;
 	}
 
-	./${DESL_CONFIGURE} "${@}" || return ${?};
+	./configure ${ARGS_CONFIGURE} "${@}" || return ${?};
 	return 0;
 }
 
@@ -114,16 +118,28 @@ DSH_CloseBuildDirectory(){ # package ID
 	:
 }
 
-RunDESLBuilder(){
-	case ${DESLB_RUN_IN_WORLD} in
-		1) DESLB_SUBPROCESS=1 "${DESL_BUILDER}" "${@}" || return ${?};;
-		*) DESLB_SUBPROCESS=1 "${CORETOOLS_DIR}/sh" "${DESL_BUILDER}" "${@}" || return ${?};;
-	esac
+DSH_RemoveEmptyDirectories(){ # path
+	local D="${1:-.}";
+	local x;
+	for x in `find ${D} -type d | sort -r`; do
+		rmdir "${x}" 2> /dev/null
+	done
 	return 0;
 }
 
-DESLBuilder(){
-	vinfo "Use 'RunDESLBuilder' instead"
-	RunDESLBuilder "${@}"
-	return ${?};
+DSH_MoveFiles(){ # src, dst, name match
+	local x;
+	local S="${1:-.}";
+	local D="${2}";
+	local M="${3}";
+	local P;
+	for x in `find "${S}" ${M:+ -name "${M}"}`; do
+		[ -d "${x}" ] && continue;
+
+		P="${x#${S}}";
+		mkdir -p "${D}/${P%/*}" || return ${?};
+		error "${D}/${P}"
+		mv "${x}" "${D}/${P}" || return ${?};
+	done
+	return 0;
 }

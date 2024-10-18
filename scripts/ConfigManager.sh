@@ -15,7 +15,7 @@ ConfigGetEnv(){
 
 
 ConfigFileFormat(){ # Path
-	[ "${1}" != '-' ] && {
+	[ ! "${1}" = '-' ] && {
 		[ ! -f "${1}" ] && {
 			return 1;
 		}
@@ -178,7 +178,7 @@ ConfigUnload(){ # (Namespace)
 ConfigMerge(){ # Path (Namespace)
 	echo "I:  Loading \"${1}\"..."
 
-	[ "${1}" != '-' ] && {
+	[ ! "${1}" = '-' ] && {
 		[ ! -f "${1}" ] && {
 		echo "W: File \"${1}\" not found."
 			return 1;
@@ -260,7 +260,7 @@ ConfigSave(){ # Path, (Namespace)
 		case "${l}" in
 			*:*	)
 				GRP=${l%%:*};
-				[ "${_OldGRP_}" != "${GRP}" ] && {
+				[ ! "${_OldGRP_}" = "${GRP}" ] && {
 					echo >> ${FILE}
 					echo "[${GRP}]" >> ${FILE}
 				}
@@ -380,7 +380,7 @@ ConfigSearchGroup(){ # ((Namespace::):Group)
 
 			eval local CSG_${GRP};
 			eval X=\${CSG_${GRP}};
-			[ "${X}" != '1' ] && echo ${GRP}
+			[ ! "${X}" = '1' ] && echo ${GRP}
 			eval local CSG_${GRP}=1;
 			;;
 		esac

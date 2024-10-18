@@ -101,8 +101,7 @@ ConvertKey(){
 
 EnterSession(){
 	[ ! -e "${DLP_CONFIG}" ] && {
-		error $DLP_CONFIG
-		error "Directory '${ROOT_DIR}' is not initialized with dlpi."
+		error "Directory '${ROOT_DIR}' is not initialized with dlpi / dlpm."
 		return 1;
 	}
 	[ ! -e "${REP_LIST}" ] && {
@@ -149,7 +148,7 @@ DLPMInstall(){
 	ResolveDepends || return ${?};
 
 	[ "${DLPM_DRY_RUN:-0}" = '1' ] && {
-		echo "${DLPM_LIST_FILES}"
+		[ "${ARGS_OPT_LONG_Quiet:-0}" = '0' ] && echo "${DLPM_LIST_FILES}"
 		return 0;
 	}
 

@@ -372,11 +372,11 @@ DLPICheck(){ # /Check /Installed or /File:<DLP>
 		return 2;
 	}
 
-	local DLP_CONFIG="${DLPI_DIR}/dlp.conf";
-	[ ! -e "${DLP_CONFIG}" ] && {
-		error "Directory '${ROOT_DIR}' is not initialized with dlpi."
-		return 2;
-	}
+#	local DLP_CONFIG="${DLPI_DIR}/dlp.conf";
+#	[ ! -e "${DLP_CONFIG}" ] && {
+#		error "Directory '${ROOT_DIR}' is not initialized with dlpi."
+#		return 2;
+#	}
 
 	local ID="${ARGS_OPT_LONG_ID}";
 	local DLPI_FILE="${DLPI_DIR}/installed/${ID//\//_____}.dlpi";

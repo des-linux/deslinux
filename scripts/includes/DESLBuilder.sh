@@ -6,6 +6,7 @@
 #//////////////////////////////////////////////////
 
 . "${INCLUDES_DIR}/DESLBPackageReader.sh"
+. "${INCLUDES_DIR}/DependencyResolver.sh"
 
 BuilderRunScriptEx(){
 	case "${DESL_OUTPUT_VERBOSE:-0}" in
@@ -43,9 +44,23 @@ BuilderInitialize(){
 BuilderRunScript(){
 	BuilderInitialize "${1}"
 
-	BuilderSolveDepends_BuildOnly || return ${?};
-	BuilderSolveDepends_BuildTools || return ${?};
-	BuilderSolveDepends_Library || return ${?};
+	export CURRENT_TOOLCHAIN_USR_DIR="/mnt/toolchain/desl-${DESL_ARCH}/${DESL_BUILD_PACKAGE//\//_}/usr";
+	export CURRENT_TOOLCHAIN_TOOLS_DIR="/mnt/toolchain/desl-${DESL_ARCH}/${DESL_BUILD_PACKAGE//\//_}/tools";
+
+	vinfo "Install dependencies"
+	[ ! -e "${CURRENT_TOOLCHAIN_USR_DIR}" ] && {
+		mkdir -p "${CURRENT_TOOLCHAIN_USR_DIR}"
+		RunScript "${SCRIPTS_DIR}/dlpi" /Initialize /Root:${CURRENT_TOOLCHAIN_USR_DIR} /Platform:${DESL_ARCH} || return ${?};
+	}
+
+	[ ! -e "${CURRENT_TOOLCHAIN_TOOLS_DIR}" ] && {
+		mkdir -p "${CURRENT_TOOLCHAIN_TOOLS_DIR}"
+		RunScript "${SCRIPTS_DIR}/dlpi" /Initialize /Root:${CURRENT_TOOLCHAIN_TOOLS_DIR} /Platform:${BUILDER_ARCH} || return ${?};
+	}
+
+	SolveDepends_BuildOnly || return ${?};
+	SolveDepends_BuildTools || return ${?};
+	SolveDepends_Library || return ${?};
 
 	BuilderRunScriptEx unshare -m "${DESLB_SH}" "${SCRIPTS_DIR}/ExecBuildScript" "${@}" || return ${?};
 	return ${?};
@@ -54,7 +69,7 @@ BuilderRunScript(){
 BuilderDownload(){
 	BuilderInitialize Download || return ${?};
 
-	BuilderSolveDepends_SourceOnly /Download || return ${?};
+	SolveDepends_SourceOnly /Download || return ${?};
 
 	vinfo ' Checking for download necessity...'
 	[ "${Package_Source_SaveTo}" = '' ] && {
@@ -119,7 +134,7 @@ BuilderDownload(){
 BuilderExtract(){
 	BuilderInitialize Extract || return ${?};
 
-	BuilderSolveDepends_SourceOnly /Extract || return ${?};
+	SolveDepends_SourceOnly /Extract || return ${?};
 
 	mkdir -p "${BUILD_DIR}"
 	mkdir -p "${SHARED_SOURCE_ROOT_DIR}"
@@ -162,7 +177,8 @@ BuilderExtract(){
 		.zip )
 			RunCommand unzip -d "${EXTRACT_DIR}" "${PKG_ARC_FILE}"
 			;;
-		.tar | .tar.gz | .tar.xz | .tar.bz2 | .tar.lzma )
+		.tar | .tar.gz | .tar.xz | .tar.bz2 | .tar.lzma \
+		| .tgz | .txz )
 			RunCommand tar xvf "${PKG_ARC_FILE}" -C "${EXTRACT_DIR}"
 			;;
 		.tar.lzo )
@@ -263,137 +279,5 @@ BuilderInstall(){ # mode
 
 BuilderClean(){ # mode
 	BuilderRunScript Clean "${@}" || return ${?};
-	return 0;
-}
-
-
-
-
-# Dependency solvers
-
-BuilderSolveDepends_SourceOnly(){ # Mode
-	local x;
-	local MODE="${1:-/Prepare}";
-
-	[ ! "${Package_ImportCoreInfo:--}" = '-' ] && {
-		RunDESLBuilder ${ARGS_RAW_STRING} /M:${MODE} /Package:${Package_ImportCoreInfo} || return ${?}
-	}
-
-	for x in `ConfigFileList "${PKG_FILE}" 'BuildDepends_SourceOnly'`; do
-		RunDESLBuilder ${ARGS_RAW_STRING} /M:${MODE} /Package:${x} || return ${?}
-	done
-	return 0;
-}
-
-BuilderSolveDepends_BuildOnly(){ # Build:Y, Install:N, Auto-dev:N, ForBuilder:N
-	BuilderSolveDepends 'BuildDepends_BuildOnly' 1 0 0 0 || return ${?};
-	return 0;
-}
-
-BuilderSolveDepends_BuildTools(){ # Build:Y, Install:Y, Auto-dev:N, ForBuilder:Y
-	BuilderSolveDepends 'BuildDepends_BuildTools' 1 1 0 1 || return ${?};
-
-	return 0;
-}
-
-BuilderSolveDepends_Library(){ # Build:Y, Install:N, Auto-dev:Y, ForBuilder:N
-	BuilderSolveDepends 'BuildDepends_Library' 1 1 1 0 || return ${?};
-	BuilderSolveDepends 'BuildDepends_Library' 0 1 0 0 || return ${?};
-
-	BuilderSolveDepends 'Depends' 1 1 1 0 || return ${?};
-	BuilderSolveDepends 'Depends' 0 1 0 0 || return ${?};
-	return 0;
-}
-
-BuilderSolveDepends(){ # Section, F:Build, F:Install, F:AutoDev, InstallTo
-	local x;
-	local L_SECTION="${1:--}";
-	local L_BUILD="${2:-0}";
-	local L_INSTALL="${3:-0}";
-	local L_AUTODEV="${4:-0}";
-	local L_FORBUILDER="${5:-0}";
-
-	local L_DLP_DEFAULT="${DLP_DIR}";
-	local L_INSTALL_DEFAULT="${TOOLCHAIN_USR_DIR}";
-	[ "${L_FORBUILDER}" = '1' ] && {
-		L_DLP_DEFAULT="${DLP_BUILDER_DIR}";
-		L_INSTALL_DEFAULT="${TOOLCHAIN_BUILDER_DIR}";
-	}
-
-	[ "${L_FORBUILDER}" = '1' ] && {
-		L_INSTALL_DEFAULT="${TOOLCHAIN_TOOLS_DIR}";
-	}
-
-	local x_ORG;
-	local L_ARCH;
-	local L_DLP_DIR;
-	local L_INSTALL_DIR;
-
-	for x in `ConfigFileList "${PKG_FILE}" "${L_SECTION}"`; do
-		L_ARCH='';
-		L_DLP_DIR="${L_DLP_DEFAULT}";
-		L_INSTALL_DIR="${L_INSTALL_DEFAULT}";
-
-		x_ORG="${x}";
-		[ "${L_AUTODEV}" = '1' ] && x="${x}-dev";
-
-		# Prevent loop (Some packages requires builder's arch version of own in building.)
-		[ "${L_FORBUILDER}" = '1' ] && [ "${x}" = "${DESL_BUILD_PACKAGE}" ] && [ "${DESL_INTERNAL_TOOLS:-0}" = '1' ] && {
-			continue;
-		}
-
-		# Directory patch
-		case "${x}" in
-			bootstrap | bootstrap/* )
-				L_DLP_DIR="${DLP_BOOTSTRAP_DIR}";
-				L_INSTALL_DIR="${BOOTSTRAP_DIR}";
-			;;
-
-			toolchain-base | toolchain-base/* )
-				L_DLP_DIR="${DLP_BASEARCH_DIR}";
-				L_INSTALL_DIR="${TOOLCHAIN_BASEARCH_DIR}";
-			;;
-
-			toolchain | toolchain/* )
-				L_DLP_DIR="${DLP_TOOLCHAIN_DIR}";
-				L_INSTALL_DIR="${TOOLCHAIN_DIR}";
-			;;
-
-			* )
-				[ "${L_FORBUILDER}" = '1' ] && {
-					L_ARCH='/Arch:BUILD';
-				}
-			;;
-		esac
-
-		# Check installed
-		RunDLPI /Check /Root:${L_INSTALL_DIR} /ID:${x} || {
-
-			# Check: DLP exists
-			RunDLPM /FindPackage "${x}" /DLPDir:${L_DLP_DIR} /Quiet || {
-				[ "${L_BUILD}" = '1' ] && {
-					# No DLP && BUILD flag = 1
-					RunDESLBuilder ${ARGS_RAW_STRING} /M:/Build /Package:${x_ORG} ${L_ARCH} || return ${?}
-				} || {
-					# No DLP && BUILD flag = !1 (Ignore this package)
-					continue
-				}
-			}
-
-			# Re-check installed (May be installed during build by package has same dependency.)
-#			warning "Re-checking: $x in $L_INSTALL_DIR"
-#			RunDLPI /Check /Root:${L_INSTALL_DIR} /ID:${x} && {
-#				warning "SKIP Already installed: $x in $L_INSTALL_DIR"
-#				continue;
-#			}
-
-			# Install DLP
-			[ "${L_INSTALL}" = '1' ] && {
-				RunDLPM /Install /Root:${L_INSTALL_DIR} "${x}" /DLPDir:${L_DLP_DIR} || return ${?}
-			}
-		}
-
-	done
-
 	return 0;
 }

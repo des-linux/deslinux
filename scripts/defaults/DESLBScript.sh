@@ -8,7 +8,7 @@
 DESLB_SUPPORT_NATIVE_ISOLATION=1
 DESLB_SKIP_CONFIG_IF_EXISTS=Makefile
 
-# DSH_ functions are defined in DESLBScriptHelper
+# DSH_ functions are defined in DESLBScript_Helper
 
 DESLBInitialize(){
 	:

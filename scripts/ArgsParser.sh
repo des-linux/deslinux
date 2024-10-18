@@ -111,7 +111,7 @@ ParseArgs(){
 				A="${A:2}";
 				eval ARGS_OPT_LONG_${A//-/_}='-';
 				[ "${ARGS_FIRST_CMD}" = '' ] && ARGS_FIRST_CMD=${A};
-				[ "${ARGS_FIRST_CMD_EX}" = '' ] && [ "${A:3}" != '' ] && ARGS_FIRST_CMD_EX=${A};
+				[ "${ARGS_FIRST_CMD_EX}" = '' ] && [ ! "${A:3}" = '' ] && ARGS_FIRST_CMD_EX=${A};
 				continue;;
 
 			-*=*)

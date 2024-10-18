@@ -5,7 +5,7 @@
 #//	http://xprj.net/
 #//////////////////////////////////////////////////
 
-DESLBPACKAGEREADER_DESLPACKAGE='ImportCoreInfo Category ID ID_Suffix ID_Full Name Version Revision';
+DESLBPACKAGEREADER_DESLPACKAGE='Redirect ImportCoreInfo Category ID ID_Suffix ID_Full Name Version Revision';
 DESLBPACKAGEREADER_SOURCE='BaseURI_RAW FilaName_RAW RootDir_RAW SaveTo_RAW MakeDir SHA256 BaseURI FileExts FileName RootDir SaveTo File';
 
 PackageInfo(){
@@ -15,6 +15,7 @@ Package_Name			User-friendly package name
 Package_ID			Package ID
 Package_ID_Full			Final package ID (Use as DLP file name)
 Package_ID_Suffix
+Package_Redirect
 Package_Revision		Revision number in same version
 Package_Version			Package version
 Package_Source_BaseURI		Source download URL (Base)
@@ -81,7 +82,6 @@ PackageLoad(){ # PackageID, PackageDef, [Prefix]
 		eval ${VAL_PREFIX:+${VAL_PREFIX}_}Package_ID_Suffix="${cic_Package_Version}-${local_Package_Revision}";
 	}
 
-
 	return 0;
 }
 
@@ -106,6 +106,7 @@ PackageRead(){ # PackageID, PackageDef
 	ConfigGet Package_Version DESLPackage::DESLPackage:Version 0
 	ConfigGet Package_Revision DESLPackage::DESLPackage:Revision 0
 	ConfigGet Package_ImportCoreInfo DESLPackage::DESLPackage:ImportCoreInfo -
+	ConfigGet Package_Redirect DESLPackage::DESLPackage:Redirect -
 
 	# [Source] section
 	for x in ${DESLBPACKAGEREADER_SOURCE}; do

@@ -20,12 +20,13 @@ DESLB_Main(){
 	# Includes (At this point, INCLUDES_DIR is not defined.)
 	. "${SCRIPTS_DIR}/ConfigManager.sh"
 	. "${SCRIPTS_DIR}/ArgsParser.sh"
+	. "${SCRIPTS_DIR}/RunScripts.sh"
 
 	# Startup
 	ParseArgs ${MAKEFLAGS} "${@}";
 
 	# Configuration
-	export DESLB_CONFIG_FILE=${ARGS_OPT_LONG_ConfigFile-"${ROOT_DIR}/.config"};
+	export DESLB_CONFIG_FILE="${ARGS_OPT_LONG_ConfigFile-"${ROOT_DIR}/.config"}";
 	[ -e "${DESLB_CONFIG_FILE}" ] && {
 		ConfigLoad "${ROOT_DIR}/.config" > ${N}
 		for v in `ConfigListWithValue`; do
@@ -70,19 +71,23 @@ DESLB_Main(){
 	}
 
 	[ "${DESLB_RUN_WITHOUT_FSV:-0}" = '0' ] && {
-		AddPATH "${TOOLCHAIN_DIR}" "${TOOLCHAIN_USR_DIR}" "${TOOLCHAIN_TOOLS_DIR}" "${TOOLCHAIN_LOCAL_DIR}" "${TOOLCHAIN_BUILDER_DIR}"
+		AddPATH "${TOOLCHAIN_DIR}" "${TOOLCHAIN_TOOLS_DIR}" "${TOOLCHAIN_TOOLS_CORE_DIR}" "${TOOLCHAIN_BUILDER_DIR}"
 
 		[ ! -e '/lib' ] && [ ! -L '/lib' ] && ln -s "${TOOLCHAIN_BUILDER_DIR}/lib" /lib
 		[ ! -e '/usr' ] && [ ! -L '/usr' ] && ln -s "${TOOLCHAIN_TOOLS_DIR}" /usr
 	}
 
 	case "${PACKAGE_ROOT_CATEGORY}" in
-		'toolchain-base' )
+		'bootstrap' )
+			AddPATH "${BOOTSTRAP_DIR}"
+		;;
+
+		'toolchain' | 'toolchain-base' )
 			# Add bootstrap
 			AddPATH "${BOOTSTRAP_DIR}"
 			AddPATH "${TOOLCHAIN_BASEARCH_DIR}"
 		;;
-		'toolchain' )
+		DISABLED )
 			# Add bootstrap
 			AddPATH "${TOOLCHAIN_BASEARCH_DIR}"
 			AddPATH "${BOOTSTRAP_DIR}"
@@ -90,12 +95,7 @@ DESLB_Main(){
 	esac
 
 	# Exception: Building 'make' requires 'Make', 'MakeCPIO' requires 'MakeCPIO'.
-	case "${DESL_BUILD_PACKAGE}" in
-		'toolchain/tools' ) export DESL_BUILDING_CORE_TOOLS=1;;
-	esac
-	[ "${DESL_BUILDING_CORE_TOOLS:-0}" = '1' ] && {
-		AddPATH "${BOOTSTRAP_DIR}";
-	}
+	[ "${DESLB_PREREQ_USE_BOOTSTRAP:-0}" = '1' ] && AddPATH "${BOOTSTRAP_DIR}";
 
 	# Command
 	. "${INCLUDES_DIR}/DESLBuilder.sh"
@@ -114,30 +114,29 @@ ExportBootstrapArch(){
 
 	[ "${T1}" = '' ] && {
 		local ARCH=`${SCRIPTS_DIR}/config.guess`;
-		local T=${1}
+		local T=${1};
 		local IFS=$'-';
 		set -- ${T:-${ARCH}}
 		T1=${1};
 		T3=${3};
 	}
 
-	export BUILDER_ARCH_BUILD_ORG=${BOOTSTRAP_ARCH_ORG};
-	export BOOTSTRAP_TARGET_ORG=${BUILDER_ARCH_BUILD_ORG}-desl_bootstrap-${T3};
+	export BUILDER_ARCH_BUILD_ORG="${BOOTSTRAP_ARCH_ORG}";
 
 	[ "${T1}" = "x86_64" ] && [ "${ARGS_OPT_LONG_Skip_x86Test}" = '' ] && {
 		${SCRIPTS_DIR}/x86test && T1=i686;
 	}
 
 	export BUILDER_ARCH_BUILD=${T1};
-	export BOOTSTRAP_TARGET=${BUILDER_ARCH_BUILD}-desl_bootstrap-${T3};
+	export BOOTSTRAP_TARGET="${BUILDER_ARCH_BUILD}-desl_bootstrap-${T3}";
 
-	export BUILDER_ARCH=${BUILDER_ARCH_BUILD};
+	export BUILDER_ARCH="${BUILDER_ARCH_BUILD}";
 	case ${BUILDER_ARCH_BUILD} in
 		i686	) BUILDER_ARCH='x86';;
 		x86_64	) BUILDER_ARCH='x64';;
 	esac
 
-	export BUILDER_ARCH_ORG=${BUILDER_ARCH_BUILD_ORG};
+	export BUILDER_ARCH_ORG="${BUILDER_ARCH_BUILD_ORG}";
 	case ${BUILDER_ARCH_BUILD_ORG} in
 		i686	) BUILDER_ARCH_ORG='x86';;
 		x86_64	) BUILDER_ARCH_ORG='x64';;
@@ -149,7 +148,7 @@ ExportBootstrapArch(){
 
 GetTargetArch(){
 	# Get 'DESL_ARCH'
-	export DESL_ARCH=${CONFIG_Target_Arch};
+	export DESL_ARCH="${CONFIG_Target_Arch}";
 
 	# Arch override by 'DESLB_ARCH' env. [1/2]
 	[ ! "${DESLB_ARCH:-BUILD}" = "BUILD" ] && DESL_ARCH="${DESLB_ARCH}";
@@ -161,18 +160,14 @@ GetTargetArch(){
 
 	# Special Arch 'BUILD' for build tools.
 	[ "${ARGS_OPT_LONG_Arch}" = "BUILD" ] && {
-		export ORG_BUILD_DIR="${BUILD_DIR}";
 		DESL_ARCH="${BUILDER_ARCH}";
 
 		SKIP_PREREQ=1;
 		DESL_INTERNAL_TOOLS=1;
 	}
 
-	# Backup
-	export DESL_ARCH_ORG=${DESL_ARCH};
-
 	# Convert DESL_ARCH to internal format
-	export DESL_ARCH_BUILD=${DESL_ARCH};
+	export DESL_ARCH_BUILD="${DESL_ARCH}";
 	case ${DESL_ARCH_BUILD} in
 		x86)	DESL_ARCH_BUILD='i686';;
 		x64)	DESL_ARCH_BUILD='x86_64';;
@@ -184,32 +179,14 @@ GetTargetArch(){
 		b="${a%=*}";
 		c="${a#*=}";
 		case "${DESL_ARCH_BUILD}" in
-			${b} ) DESL_ARCH_BUILD=${c}${DESL_ARCH_BUILD#${b}*}
+			${b} ) DESL_ARCH_BUILD="${c}${DESL_ARCH_BUILD#${b}*}";
 		esac
 	done
 
 
-	# Sub arch instruction set support
-	export DESL_ARCH_BUILD_BASE='';
-	export DESL_ARCH_BUILD_SUB='';
-	case ${DESL_ARCH_BUILD} in
-		x86_64  )
-			DESL_ARCH_BUILD_SUB='';
-			DESL_ARCH_BUILD_BASE='x86_64';
-		;;
-		*_*)
-			DESL_ARCH_BUILD_SUB=${DESL_ARCH_BUILD##*_};
-			DESL_ARCH_BUILD_BASE=${DESL_ARCH_BUILD%_*};
-		;;
-		*)
-			DESL_ARCH_BUILD_SUB='';
-			DESL_ARCH_BUILD_BASE=${DESL_ARCH_BUILD};
-		;;
-	esac
-
 	# Generate 'DESL_TARGET' by 'DESL_ARCH'
 	ExportDESLTarget ${DESL_ARCH_BUILD};
-	export DESL_TARGET=${NEW_DESL_TARGET};
+	export DESL_TARGET="${NEW_DESL_TARGET}";
 
 	# Static build
 	[ ! "${ARGS_OPT_LONG_Static}${ARGS_OPT_LONG_s}" = '' ] && {
@@ -222,7 +199,7 @@ GetTargetArch(){
 
 	# Generate 'BUILDER_TARGET' by 'BUILDER_ARCH'
 	ExportDESLTarget ${BUILDER_ARCH_BUILD};
-	export BUILDER_TARGET=${NEW_DESL_TARGET};
+	export BUILDER_TARGET="${NEW_DESL_TARGET}";
 
 	return 0;
 }
@@ -257,11 +234,12 @@ ExportDirsPath(){
 	export BOOTSTRAP_DIR="${BOOTSTRAP_BASE_DIR}/builder-${BUILDER_ARCH}";
 
 	export TOOLCHAIN_BASE_DIR="${TOOLCHAIN_ROOT_DIR}/builder-${BUILDER_ARCH}";
-	export TOOLCHAIN_TOOLS_DIR="${TOOLCHAIN_BASE_DIR}/tools";
+	export TOOLCHAIN_TOOLS_CORE_DIR="${TOOLCHAIN_BASE_DIR}/tools";
+	export TOOLCHAIN_TOOLS_DIR="${TOOLCHAIN_TOOLS_CORE_DIR}/usr";
 	export TOOLCHAIN_DIR="${TOOLCHAIN_BASE_DIR}/desl-${DESL_ARCH}";
 
 	export TOOLCHAIN_USER_BASE_DIR="${TOOLCHAIN_ROOT_DIR}/usr";
-	export TOOLCHAIN_USR_DIR="${TOOLCHAIN_USER_BASE_DIR}/desl-${DESL_ARCH}";
+	export TOOLCHAIN_USR_DIR="${TOOLCHAIN_DIR}/usr";
 	export TOOLCHAIN_LOCAL_DIR="${TOOLCHAIN_USER_BASE_DIR}/local/desl-${DESL_ARCH}";
 
 	export TOOLCHAIN_BUILDER_DIR="${TOOLCHAIN_BASE_DIR}/desl-${BUILDER_ARCH}"
@@ -276,16 +254,14 @@ ExportDirsPath(){
 	export DLP_TOOLCHAIN_DIR="${IMAGE_ROOT_DIR}/builder-${BUILDER_ARCH}/desl-${DESL_ARCH}/packages"
 
 	export IMAGE_BOOTSTRAP_DIR="${IMAGE_ROOT_DIR}/bootstrap-${BOOTSTRAP_ARCH}";
-	export IMAGE_BUILDER_DIR="${IMAGE_ROOT_DIR}/desl-${BUILDER_ARCH}";
 	export DLP_BOOTSTRAP_DIR="${IMAGE_BOOTSTRAP_DIR}/packages";
 
-	export DLP_DEST_DIR="/tmp/dlp";
-	export DLP_INSTALL_DIR="${DLP_DEST_DIR}/usr";
-	export DLP_PREFIX_DIR="/usr";
+	export DLP_MAKE_ROOT_DIR="/tmp/dlp";
+	export DLP_INSTALL_DIR="${DLP_MAKE_ROOT_DIR}/usr";
 
 	# toolchain for Windows
-	export DES_W_TARGET="i686-desl-mingw32";
-	export BOOTSTRAP_W_DIR="${BOOTSTRAP_ROOT_PREFIX}-${BOOTSTRAP_ARCH}/win-x86";
+	export W_DES_TARGET="i686-desl-mingw32";
+	export W_BOOTSTRAP_DIR="${BOOTSTRAP_ROOT_PREFIX}-${BOOTSTRAP_ARCH}/win-x86";
 
 	return 0;
 }
@@ -294,9 +270,9 @@ ExportByArgs(){
 	local nproc=`nproc`
 	nproc=$((nproc+2));
 	ARGS_OPT_N_j="${ARGS_OPT_N_j:-${nproc}}";
-	export DESL_BUILD_PACKAGE=${ARGS_OPT_LONG_Package};
+	export DESL_BUILD_PACKAGE="${ARGS_OPT_LONG_Package}";
 	export PACKAGE_ROOT_CATEGORY="${DESL_BUILD_PACKAGE%%/*}";
-	export MAKE_OPT="${ARGS_OPT_N_j:+-j${ARGS_OPT_N_j}}";
+	export ARGS_MAKE_CORE="${ARGS_OPT_N_j:+-j${ARGS_OPT_N_j}}";
 
 	export DESL_OUTPUT_VERBOSE=0;
 	export DESL_FORCE_STATIC=${DESL_FORCE_STATIC:-0};
@@ -327,19 +303,6 @@ ExportByArgs(){
 
 SetupToolchainSharedDir(){
 
-	[ "${DESL_TEST_PACKAGE}" = '1' ] && {
-		# Block inheritance to child DESLBuilder.
-		export DESL_TEST_PACKAGE=0;
-
-		warning "------------------------------------------------------------"
-		warning "Package test mode is enabled."
-		warning "'export DESL_TEST_PACKAGE=0' to disable if you do not need."
-		warning "------------------------------------------------------------"
-		warning "Initializing dlpm shared directory."
-		rm -rf "${TOOLCHAIN_USER_BASE_DIR}"
-		rm -rf "${TOOLCHAIN_TOOLS_DIR}"
-	}
-
 	local DLPI_ARCH_LOCAL="${DESL_ARCH}";
 	local TOOLCHAIN_ARCH_LOCAL="${BUILDER_ARCH}";
 
@@ -353,30 +316,15 @@ SetupToolchainSharedDir(){
 		RunScript "${SCRIPTS_DIR}/dlpi" /Initialize /Root:${TOOLCHAIN_DIR} /Platform:${TOOLCHAIN_ARCH_LOCAL} /System:DESLBuilder || return ${?};
 	}
 
-	[ ! -e "${TOOLCHAIN_USR_DIR}/.dlp/dlp.conf" ] && {
-		mkdir -p "${TOOLCHAIN_USR_DIR}" || return ${?};
-		RunScript "${SCRIPTS_DIR}/dlpi" /Initialize /Root:${TOOLCHAIN_USR_DIR} /Platform:${DLPI_ARCH_LOCAL} ${System} || return ${?};
-	}
-
-	[ ! -e "${TOOLCHAIN_TOOLS_DIR}/.dlp/dlp.conf" ] && {
-		mkdir -p "${TOOLCHAIN_TOOLS_DIR}/bin" || return ${?};
-		RunScript "${SCRIPTS_DIR}/dlpi" /Initialize /Root:${TOOLCHAIN_TOOLS_DIR} /Platform:${BUILDER_ARCH} ${System} || return ${?};
+	[ ! -e "${TOOLCHAIN_TOOLS_CORE_DIR}/.dlp/dlp.conf" ] && {
+		mkdir -p "${TOOLCHAIN_TOOLS_CORE_DIR}/bin" || return ${?};
+		RunScript "${SCRIPTS_DIR}/dlpi" /Initialize /Root:${TOOLCHAIN_TOOLS_CORE_DIR} /Platform:${BUILDER_ARCH} ${System} || return ${?};
 	}
 
 	mkdir -p "${TOOLCHAIN_LOCAL_DIR}" || return ${?};
 
-
 	[ ! "${INTERNAL_NO_LINK_USR_DIR:-0}" = '1' ] && {
 		[ -e "${TOOLCHAIN_DIR}" ] && {
-			[ ! -e "${TOOLCHAIN_DIR}/usr" ] && {
-				rm -f "${TOOLCHAIN_DIR}/usr"
-				ln -s  "../../usr/desl-${DESL_ARCH}" "${TOOLCHAIN_DIR}/usr"
-			}
-			[ -e "${TOOLCHAIN_DIR}/usr" ] && [ ! -e "${TOOLCHAIN_DIR}/usr/local" ] && {
-				rm -f "${TOOLCHAIN_DIR}/usr/local"
-				ln -s  "../../usr/local/desl-${DESL_ARCH}" "${TOOLCHAIN_DIR}/usr/local"
-			}
-
 			[ ! -e "${TOOLCHAIN_DIR}/linux" ] && {
 				rm -f "${TOOLCHAIN_DIR}/linux"
 				ln -s  "../tools/linux" "${TOOLCHAIN_DIR}/linux"
@@ -421,7 +369,7 @@ VerifyArch(){
 
 					# Generate 'DESL_TARGET' by 'DESL_ARCH'
 					ExportDESLTarget ${BASE_ARCH_BUILD};
-					export BASE_TARGET=${NEW_DESL_TARGET};
+					export BASE_TARGET="${NEW_DESL_TARGET}";
 
 					export TOOLCHAIN_BASEARCH_DIR="${TOOLCHAIN_ROOT_DIR}/builder-${BUILDER_ARCH}/base-${BASE_ARCH}";
 
@@ -452,8 +400,8 @@ ChangeEnvIfPackageIsBootstrap(){
 	DESL_ARCH_BUILD="${BOOTSTRAP_ARCH_ORG}";
 	DESL_ARCH_BUILD_ORG="${BOOTSTRAP_ARCH_ORG}";
 
-	BUILD_DIR=${BUILD_BOOTSTRAP_DIR};
-	DLP_DIR=${DLP_BOOTSTRAP_DIR};
+	BUILD_DIR="${BUILD_BOOTSTRAP_DIR}";
+	DLP_DIR="${DLP_BOOTSTRAP_DIR}";
 
 	TOOLCHAIN_DIR="${BOOTSTRAP_DIR}";
 	TOOLCHAIN_USER_BASE_DIR="${TOOLCHAIN_DIR}";
@@ -516,8 +464,14 @@ CheckPrerequisites(){
 
 	. ${INCLUDES_DIR}/CheckPrerequisites.sh
 	RunCheckPrerequisites || {
+		local R=${?};
+
+		case "${R}" in
+			251 ) return 251;; # 251: require to disable FSV
+		esac
+
 		error "Failed to solve prerequisites"
-		return 1;
+		return ${R};
 	}
 }
 
@@ -543,7 +497,7 @@ RunMode(){
 		;;
 
 		'Platform' )
-			. ${INCLUDES_DIR}/DESLBPlatformManager.sh
+			. ${INCLUDES_DIR}/PlatformManager.sh
 			DESLBAM;
 			return ${?};;
 
@@ -622,12 +576,12 @@ RunMode(){
 
 		# Developer options
 		'DLP' | 'PackageManager' )
-			. ${INCLUDES_DIR}/DESLBPackageManager.sh
+			. ${INCLUDES_DIR}/DevTools_PackageManger.sh
 			DESLBPM;
 			return ${?};;
 
 		'ShowExports' )
-			. ${INCLUDES_DIR}/DESLBExports.sh
+			. ${INCLUDES_DIR}/DevTools_DESLBExports.sh
 			ShowExports;
 			return ${?};;
 
@@ -655,49 +609,3 @@ RunMode(){
 
 return 0;
 };
-
-RunScript(){
-	case ${DESLB_RUN_IN_WORLD:-0} in
-		1) RunCommand "${@}" || return ${?};;
-		*) RunCommand "${CORETOOLS_DIR}/sh" "${@}" || return ${?};;
-	esac
-	return 0;
-}
-
-RunCommand(){
-	case "${DESL_OUTPUT_VERBOSE:-0}" in
-		0 | 1)
-			"${@}" > /dev/null
-			return ${?};
-			;;
-
-		* )
-			"${@}"
-			return ${?};
-			;;
-	esac
-	return 127;
-}
-
-RunDESLBuilder(){
-	case ${DESLB_RUN_IN_WORLD} in
-		1) DESLB_SUBPROCESS=1 "${DESL_BUILDER}" "${@}" || return ${?};;
-		*) DESLB_SUBPROCESS=1 "${CORETOOLS_DIR}/sh" "${DESL_BUILDER}" "${@}" || return ${?};;
-	esac
-	return 0;
-}
-
-RunDLPM(){
-	RunScript "${SCRIPTS_DIR}/dlpm" "${@}"
-	return ${?};
-}
-
-RunDLPI(){
-	RunScript "${SCRIPTS_DIR}/dlpi" "${@}"
-}
-
-DESLBuilder(){
-	vinfo "Use 'RunDESLBuilder' instead"
-	RunDESLBuilder "${@}"
-	return ${?};
-}

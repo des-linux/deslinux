@@ -1,36 +1,36 @@
 [Arch]
 //ArchName		= BaseArch, Extra gcc options
-x64			= x64, -m64 -march=nehalem -mmusl
-x86			= x64, -m32 -march=nehalem -mmusl
+x64			= x64, -m64 -march=nehalem -fPIC -mmusl
+x86			= x64, -m32 -march=nehalem -fPIC -mmusl
 
-i386			= x64, -m32 -march=i386 -mmusl
+i386			= x64, -m32 -march=i386 -fPIC -mmusl
 
-ia64			= ia64, -mmusl
+ia64			= ia64, -fPIC -mmusl
 
-mips_hf			= mips64, -mabi=32 -meb -mhard-float -mmusl
-mips			= mips64, -mabi=32 -meb -msoft-float -mmusl
-mipsel_hf		= mips64, -mabi=32 -mel -mhard-float -mmusl
-mipsel			= mips64, -mabi=32 -mel -msoft-float -mmusl
+mips_hf			= mips64, -mabi=32 -meb -mhard-float -fPIC -mmusl
+mips			= mips64, -mabi=32 -meb -msoft-float -fPIC -mmusl
+mipsel_hf		= mips64, -mabi=32 -mel -mhard-float -fPIC -mmusl
+mipsel			= mips64, -mabi=32 -mel -msoft-float -fPIC -mmusl
 
-mips64_hf		= mips64, -mabi=64 -meb -mhard-float -mmusl
-mips64			= mips64, -mabi=64 -meb -msoft-float -mmusl
-mips64el_hf		= mips64, -mabi=64 -mel -mhard-float -mmusl
-mips64el		= mips64, -mabi=64 -mel -msoft-float -mmusl
+mips64_hf		= mips64, -mabi=64 -meb -mhard-float -fPIC -mmusl
+mips64			= mips64, -mabi=64 -meb -msoft-float -fPIC -mmusl
+mips64el_hf		= mips64, -mabi=64 -mel -mhard-float -fPIC -mmusl
+mips64el		= mips64, -mabi=64 -mel -msoft-float -fPIC -mmusl
 
-aarch64			= aarch64, -mlittle-endian -mmusl
-aarch64eb		= aarch64, -mbig-endian -mmusl
+aarch64			= aarch64, -mlittle-endian -fPIC -mmusl
+aarch64eb		= aarch64, -mbig-endian -fPIC -mmusl
 
-aarch32			= arm, -march=armv7 -mabi=aapcs-linux -mlittle-endian -mfloat-abi=soft -mmusl
-aarch32_hf		= arm, -march=armv7 -mabi=aapcs-linux -mlittle-endian -mfloat-abi=softfp -mmusl
-aarch32eb		= arm, -march=armv7 -mabi=aapcs-linux -mbig-endian -mbe8 -mfloat-abi=soft -mmusl
-aarch32eb_hf		= arm, -march=armv7 -mabi=aapcs-linux -mbig-endian -mbe8 -mfloat-abi=softfp -mmusl
+aarch32			= arm, -march=armv7 -mabi=aapcs-linux -mlittle-endian -mfloat-abi=soft -fPIC -mmusl
+aarch32_hf		= arm, -march=armv7 -mabi=aapcs-linux -mlittle-endian -mfloat-abi=softfp -fPIC -mmusl
+aarch32eb		= arm, -march=armv7 -mabi=aapcs-linux -mbig-endian -mbe8 -mfloat-abi=soft -fPIC -mmusl
+aarch32eb_hf		= arm, -march=armv7 -mabi=aapcs-linux -mbig-endian -mbe8 -mfloat-abi=softfp -fPIC -mmusl
 
-arm			= arm, -march=armv4 -mabi=aapcs-linux -mlittle-endian -mfloat-abi=soft -mmusl
-arm_hf			= arm, -march=armv4 -mabi=aapcs-linux -mlittle-endian -mfloat-abi=softfp -mmusl
-armeb			= arm, -march=armv4 -mabi=aapcs-linux -mbig-endian -mbe8 -mfloat-abi=soft -mmusl
-armeb_hf		= arm, -march=armv4 -mabi=aapcs-linux -mbig-endian -mbe8 -mfloat-abi=softfp -mmusl
+arm			= arm, -march=armv4 -mabi=aapcs-linux -mlittle-endian -mfloat-abi=soft -fPIC -mmusl
+arm_hf			= arm, -march=armv4 -mabi=aapcs-linux -mlittle-endian -mfloat-abi=softfp -fPIC -mmusl
+armeb			= arm, -march=armv4 -mabi=aapcs-linux -mbig-endian -mbe8 -mfloat-abi=soft -fPIC -mmusl
+armeb_hf		= arm, -march=armv4 -mabi=aapcs-linux -mbig-endian -mbe8 -mfloat-abi=softfp -fPIC -mmusl
 
-loongarch64		= loongarch64, -mmusl
+loongarch64		= loongarch64, -fPIC -mmusl
 
 
 [Patch]

@@ -35,7 +35,7 @@ DESLBuilder(){
 		local R=${?};
 		case "${R}" in
 			251 )
-					export DESLB_REQUEST_WITHOUT_FSV=1;
+				export DESLB_REQUEST_WITHOUT_FSV=1;
 				RunInUnshare "${@}"
 				R=${?};
 			;;
@@ -155,6 +155,11 @@ ExecWithoutFSV(){
 		return 1;
 	}
 
+	mount -t tmpfs "tmp://DESLBuilder/FSV" '/tmp' || {
+		error 'Failed to mount virtualized tmpfs in /tmp directory.'
+		return ${1};
+	}
+
 	ClearEnvVariables '/sbin:/bin';
 	SetEnvVariables;
 
@@ -169,10 +174,6 @@ ExecWithoutFSV(){
 
 ExecDESLBuilderX(){
 
-	mount -t tmpfs "tmp://DESLBuilder/session" '/tmp' || {
-		error 'Failed to mount virtualized tmpfs in /tmp directory.'
-		return ${1};
-	}
 
 	[ "${DESL_BUILDER_X}" = '' ] && SHOW_RESULT_CODE=1;
 	[ ! "${DESLB_SUBPROCESS:-0}" = '0' ] && SHOW_RESULT_CODE=0;
@@ -301,7 +302,6 @@ DetectBuilderArch(){
 	local T3=${3};
 
 	[ "${T3}" = '' ] && {
-		export DESLB_FAILED_TO_DETECT_ARCH=1
 		warning 'DESLBuilder may not be supported by your shell or environment.'
 	}
 

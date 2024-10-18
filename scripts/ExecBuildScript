@@ -14,19 +14,34 @@
 # Includes
 . "${SCRIPTS_DIR}/ArgsParser.sh"
 . "${SCRIPTS_DIR}/ConfigManager.sh"
+. "${SCRIPTS_DIR}/RunScripts.sh"
+. "${INCLUDES_DIR}/DependencyResolver.sh"
 . "${INCLUDES_DIR}/DESLBPackageReader.sh"
 
-RunDESLBScript(){ # mode
+EBSRunDESLBScript(){ # mode
 	local BUILD_MODE="${1}";
 	# Enable verbose output (To reduce 'if')
 	[ ! "${DESL_OUTPUT_VERBOSE:-0}" = '0' ] && . "${INCLUDES_DIR}/VerboseOutput_Build.sh"
 
+	# Mount tmp, toolchain usr / tools directory
+	mount -t tmpfs tmp://DESLBuilder/ExecBuildScript/session /tmp
+	mount -o bind "${CURRENT_TOOLCHAIN_USR_DIR}" "${TOOLCHAIN_USR_DIR}" || return ${?};
+	mount -o bind "${CURRENT_TOOLCHAIN_TOOLS_DIR}" "${TOOLCHAIN_TOOLS_DIR}" || return ${?};
+
+
 	PKG_FILE="${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def";
 	PackageLoad "${DESL_BUILD_PACKAGE}" "${PKG_FILE}" || return ${?};
 
+	# Redirect package
+	[ ! "${Package_Redirect}" = '-' ] && {
+		DESL_BUILD_PACKAGE="${Package_Redirect}";
+		PKG_FILE="${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def";
+		PackageLoad "${DESL_BUILD_PACKAGE}" "${PKG_FILE}" || return ${?};
+	}
+
 	# Load default script
 	. "${DEFAULTS_DIR}/DESLBScript.sh"
-	. "${INCLUDES_DIR}/DESLBScriptHelper.sh"
+	. "${INCLUDES_DIR}/DESLBScript_Helper.sh"
 
 	# Make writable build directory
 	vinfo "Preparing build directory"
@@ -36,12 +51,12 @@ RunDESLBScript(){ # mode
 
 	vinfo "Loading DESLBScript.sh"
 	[ -e "${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLBScript.sh" ] && {
-		vinfo "No DESLBScript.sh found. Using default DESLBSCript.sh"
+		vinfo "No DESLBScript.sh found. Using default DESLBScript.sh"
 		. "${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLBScript.sh"
 	}
 
 	vinfo "Open build / package directory"
-	PrepareBuildDirectory "${CURRENT_BUILD_DIR}" "${SHARED_BUILD_DIR}" || return ${?};
+	EBSPrepareBuildDirectory "${CURRENT_BUILD_DIR}" "${SHARED_BUILD_DIR}" || return ${?};
 
 	cd "${CURRENT_BUILD_DIR}"
 	vinfo "Starting build process: ${BUILD_MODE}"
@@ -99,7 +114,7 @@ RunDESLBScript(){ # mode
 
 }
 
-PrepareBuildDirectory(){ # build_dir, shared_dir
+EBSPrepareBuildDirectory(){ # build_dir, shared_dir
 	local W_DIR="${1}";
 	local R_DIR="${2}";
 	mkdir -p "${W_DIR}"
@@ -108,11 +123,14 @@ PrepareBuildDirectory(){ # build_dir, shared_dir
 	local OV_UPPER_DIR="${W_DIR}/build";
 
 	export SHARED_SOURCE_DIR='-';
+	export IMPORT_BUILD_DIR='-';
 	[ ! "${Package_ImportCoreInfo:--}" = '-' ] && {
 		vinfo 'This package imports CoreInfo'
 		DSH_GetSharedDirectory "${Package_ImportCoreInfo}";
 
 		R_DIR="${SHARED_SOURCE_DIR}";
+
+		IMPORT_BUILD_DIR="${BUILD_DIR}/${GSD_Package_Source_RootDir}";
 	}
 
 	[ "${DESLB_SUPPORT_NATIVE_ISOLATION:-0}" = '1' ] && {
@@ -134,121 +152,125 @@ PrepareBuildDirectory(){ # build_dir, shared_dir
 	return 0;
 }
 
-MakeDLP(){
-	local DESL_ARCH_LOCAL="${DESL_ARCH}";
-	local PKGID_LOCAL="${Package_ID}";
+MakeDLP(){ # ID, DLP Root path
+	local L_PKGID_FULL="${1:-${Package_Category}/${Package_ID}}";
+	local L_DLP_MAKE_ROOT_DIR="${2:-${DLP_INSTALL_DIR}}";
+	local L_DESL_ARCH="${DESL_ARCH}";
+
 	case "${Package_Category}" in
 		toolchain-base | toolchain )
-			DESL_ARCH_LOCAL="${BUILDER_ARCH}";
+			L_DESL_ARCH="${BUILDER_ARCH}";
 			;;
 	esac
 
-
-	local DLP_ROOT_DIR="${DLP_DEST_DIR}/root";
-	[ ! -e "${DLP_INSTALL_DIR}" ] && {
+	local L_TEMP_ROOT="${DLP_MAKE_ROOT_DIR}/root";
+	[ ! -e "${L_DLP_MAKE_ROOT_DIR}" ] && {
 		vinfoex "No files are installed."
 		return 0;
 	}
 
-	local x;
-	for x in `find . -name "${DLP_INSTALL_DIR}"`; do
-		${DESL_TARGET}-strip -d "${x}" > /dev/null 2>&1
-	done
-
-	local BaseSystem='';
+	local L_BaseSystem='';
 	case "${PACKAGE_ROOT_CATEGORY}" in
-		'bootstrap' | 'toolchain-base' | 'toolchain' ) BaseSystem='/System:DESLBuilder';;
+		'bootstrap' | 'toolchain-base' | 'toolchain' ) L_BaseSystem='/System:DESLBuilder';;
 	esac
-	mkdir -p "${DLP_ROOT_DIR}/"
+
+	mkdir -p "${L_TEMP_ROOT}/"
 
 	{ # doc
 		local M=0;
-		mkdir -p "${DLP_ROOT_DIR}/share"
-		[ -e "${DLP_INSTALL_DIR}/share/doc" ] && {
-			mv "${DLP_INSTALL_DIR}/share/doc" "${DLP_ROOT_DIR}/share" || return ${?};
+		mkdir -p "${L_TEMP_ROOT}/share"
+		[ -e "${L_DLP_MAKE_ROOT_DIR}/share/doc" ] && {
+			mv "${L_DLP_MAKE_ROOT_DIR}/share/doc" "${L_TEMP_ROOT}/share" || return ${?};
 			M=1;
 		}
-		[ -e "${DLP_INSTALL_DIR}/share/man" ] && {
-			mv "${DLP_INSTALL_DIR}/share/man" "${DLP_ROOT_DIR}/share" || return ${?};
+		[ -e "${L_DLP_MAKE_ROOT_DIR}/share/man" ] && {
+			mv "${L_DLP_MAKE_ROOT_DIR}/share/man" "${L_TEMP_ROOT}/share" || return ${?};
 			M=1;
 		}
-		[ -e "${DLP_INSTALL_DIR}/share/info" ] && {
-			mv "${DLP_INSTALL_DIR}/share/info" "${DLP_ROOT_DIR}/share" || return ${?};
+		[ -e "${L_DLP_MAKE_ROOT_DIR}/share/info" ] && {
+			mv "${L_DLP_MAKE_ROOT_DIR}/share/info" "${L_TEMP_ROOT}/share" || return ${?};
 			M=1;
 		}
 
 		# remove share/ if empty
-		rmdir "${DLP_INSTALL_DIR}/share/" 2>/dev/null
-		rmdir "${DLP_ROOT_DIR}/share/" 2>/dev/null
+		rmdir "${L_DLP_MAKE_ROOT_DIR}/share/" 2>/dev/null
+		rmdir "${L_TEMP_ROOT}/share/" 2>/dev/null
 
 		[ "${M}" = '1' ] && {
-			RunDLPI /Create /Dir:"${DLP_ROOT_DIR}" /PackageDef:"${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def" /Platform:${DESL_ARCH_LOCAL} /ID:${Package_Category}/${PKGID_LOCAL}-doc /SaveTo:"${DLP_DIR}/${Package_Category}/${PKGID_LOCAL}-doc_${Package_ID_Suffix}_${DESL_ARCH_LOCAL}.dlp" ${BaseSystem} || return ${?};
+			RunDLPI /Create /Dir:"${L_TEMP_ROOT}" \
+				/PackageDef:"${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def" \
+				/Platform:${L_DESL_ARCH} \
+				/ID:${L_PKGID_FULL}-doc \
+				/SaveTo:"${DLP_DIR}/${L_PKGID_FULL}-doc_${Package_ID_Suffix}_${L_DESL_ARCH}.dlp" \
+				${L_BaseSystem} || return ${?};
 
-			rm -rf "${DLP_ROOT_DIR}" || return ${?};
-			mkdir -p "${DLP_ROOT_DIR}" || return ${?};
+			rm -rf "${L_TEMP_ROOT}" || return ${?};
+			mkdir -p "${L_TEMP_ROOT}" || return ${?};
 		}
-
 	}
+
+	local x;
+	vinfo "Strip binaries"
+	for x in `find "${L_DLP_MAKE_ROOT_DIR}" -type f`; do
+		"${DESL_TARGET}-strip" --strip-unneeded "${x}" > /dev/null 2>&1
+	done
 
 	{ # dev
 		local M=0;
 		local x p;
-		mkdir -p "${DLP_ROOT_DIR}/lib"
+		mkdir -p "${L_TEMP_ROOT}/lib"
 
-		[ -e "${DLP_INSTALL_DIR}/include" ] && {
-			mv "${DLP_INSTALL_DIR}/include" "${DLP_ROOT_DIR}" || return ${?};
+		[ -e "${L_DLP_MAKE_ROOT_DIR}/include" ] && {
+			mv "${L_DLP_MAKE_ROOT_DIR}/include" "${L_TEMP_ROOT}" || return ${?};
 			M=1;
 		}
 
-		[ -e "${DLP_INSTALL_DIR}/lib/pkgconfig" ] && {
-			mv "${DLP_INSTALL_DIR}/lib/pkgconfig" "${DLP_ROOT_DIR}/lib" || return ${?};
+		[ -e "${L_DLP_MAKE_ROOT_DIR}/lib/pkgconfig" ] && {
+			mv "${L_DLP_MAKE_ROOT_DIR}/lib/pkgconfig" "${L_TEMP_ROOT}/lib" || return ${?};
 			M=1;
 		}
 
-		for x in `find "${DLP_INSTALL_DIR}" -name "*.a"`; do
-			p="${DLP_ROOT_DIR}/${x#${DLP_INSTALL_DIR}}";
+		for x in `find "${L_DLP_MAKE_ROOT_DIR}" -name "*.a"`; do
+			p="${L_TEMP_ROOT}/${x#${L_DLP_MAKE_ROOT_DIR}}";
 			mkdir -p "${p%/*}" || return ${?};
-			"${DESL_TARGET}-strip" --strip-unneeded "${x}" 2>/dev/null
 			mv "${x}" "${p}" || return ${?};
 			M=1;
 		done
 
 		# remove share/ if empty
-		rmdir "${DLP_ROOT_DIR}/include/" 2>/dev/null
-		rmdir "${DLP_ROOT_DIR}/lib/" 2>/dev/null
+		rmdir "${L_TEMP_ROOT}/include/" 2>/dev/null
+		rmdir "${L_TEMP_ROOT}/lib/" 2>/dev/null
 
 		[ "${M}" = '1' ] && {
-			RunDLPI /Create /Dir:"${DLP_ROOT_DIR}" /PackageDef:"${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def" /Platform:${DESL_ARCH_LOCAL} /ID:${Package_Category}/${PKGID_LOCAL}-dev /SaveTo:"${DLP_DIR}/${Package_Category}/${PKGID_LOCAL}-dev_${Package_ID_Suffix}_${DESL_ARCH_LOCAL}.dlp" ${BaseSystem} || return ${?};
-			rm -rf "${DLP_ROOT_DIR}" || return ${?};
-			mkdir -p "${DLP_ROOT_DIR}" || return ${?};
+			RunDLPI /Create /Dir:"${L_TEMP_ROOT}" \
+				/PackageDef:"${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def" \
+				/Platform:${L_DESL_ARCH} \
+				/ID:${L_PKGID_FULL}-dev \
+				/SaveTo:"${DLP_DIR}/${L_PKGID_FULL}-dev_${Package_ID_Suffix}_${L_DESL_ARCH}.dlp" \
+				${L_BaseSystem} || return ${?};
+			rm -rf "${L_TEMP_ROOT}" || return ${?};
+			mkdir -p "${L_TEMP_ROOT}" || return ${?};
 		}
 
 	}
 
 	# Cleanup
-	for x in `find "${DLP_INSTALL_DIR}" -name "*.la"`; do
+	for x in `find "${L_DLP_MAKE_ROOT_DIR}" -name "*.la"`; do
 		rm "${x}" || return ${?};
 		rmdir "${x%/*}" 2>/dev/null
 	done
 
-	CheckEmptyDir "${DLP_INSTALL_DIR}" && {
+	CheckEmptyDir "${L_DLP_MAKE_ROOT_DIR}" && {
 		warning "No main files found to install."
 	} || {
-
-		for x in `find "${DLP_INSTALL_DIR}" -type f`; do
-			"${DESL_TARGET}-strip" --strip-unneeded "${x}" 2>/dev/null
-		done
-		RunDLPI /Create /Dir:"${DLP_INSTALL_DIR}" /PackageDef:"${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def" /Platform:${DESL_ARCH_LOCAL} /ID:${Package_Category}/${PKGID_LOCAL} /SaveTo:"${DLP_DIR}/${Package_Category}/${PKGID_LOCAL}_${Package_ID_Suffix}_${DESL_ARCH_LOCAL}.dlp" ${BaseSystem} || return ${?};
+		RunDLPI /Create /Dir:"${L_DLP_MAKE_ROOT_DIR}" \
+			/PackageDef:"${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def" \
+			/Platform:${L_DESL_ARCH} \
+			/ID:${L_PKGID_FULL} \
+			/SaveTo:"${DLP_DIR}/${L_PKGID_FULL}_${Package_ID_Suffix}_${L_DESL_ARCH}.dlp" \
+			${L_BaseSystem} || return ${?};
 	}
 
-	return 0;
-}
-
-RunDLPI(){
-	case ${DESLB_RUN_IN_WORLD} in
-		1) DESLB_SUBPROCESS=1 "${SCRIPTS_DIR}/dlpi" "${@}" || return ${?};;
-		*) DESLB_SUBPROCESS=1 "${CORETOOLS_DIR}/sh" "${SCRIPTS_DIR}/dlpi" "${@}" || return ${?};;
-	esac
 	return 0;
 }
 
@@ -286,5 +308,4 @@ vinfoex(){
 }
 
 
-
-RunDESLBScript "${@}";
+EBSRunDESLBScript "${@}";
