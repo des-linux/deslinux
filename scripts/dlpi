@@ -122,7 +122,7 @@ DLPIInstall(){ # /Install /File:<DLP Path> [/Root:<DLP Root>]
 
 	[ "${ARGS_OPT_LONG_IgnoreCapacity}" = '' ] && {
 		local Free Size;
-		ConfigGet Size 'DLPackage::Data:Size' 0
+		ConfigGet Size '		ackage::Data:Size' 0
 		set -- `df -m "${ROOT_DIR}"`
 		Free="${11}";
 		local Remain="$((Free-(Size/1048576)))";
@@ -167,7 +167,7 @@ DLPIInstall(){ # /Install /File:<DLP Path> [/Root:<DLP Root>]
 	echo '[Files]' >> "${DLPI_DIR}/installed/session.dlpi"
 	echo "${FILE_LIST}" >> "${DLPI_DIR}/installed/session.dlpi"
 
-	ARGS_OPT_LONG_Dir="${ROOT_DIR}" ARGS_OPT_LONG_Verbose=1 DLPIExtract || return ${?};
+	ARGS_OPT_LONG_Dir="${ROOT_DIR}" DLPIExtract || return ${?};
 
 	sync
 
@@ -177,8 +177,7 @@ DLPIInstall(){ # /Install /File:<DLP Path> [/Root:<DLP Root>]
 		for x in ${FILE_LIST}; do
 			[ ! -e "${ROOT_DIR}/${x}" ] && {
 				error "File '${x}' is not installed correctly."
-				DLPICleanup
-				return 1;
+
 			}
 		done
 	}

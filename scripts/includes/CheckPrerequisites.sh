@@ -28,7 +28,7 @@ CheckPrerequisites_Core(){
 
 	# 'MakeCPIO' ('dlpm' cannot use at this point. '/Install = DESLInstall()' will install directly)
 	[ ! -e "${BOOTSTRAP_DIR}/bin/MakeCPIO" ] && {
-		RunDESLBuilder ${ARGS_RAW_STRING} /Package:bootstrap/MakeCPIO /M:/Build || return ${?};
+		[ ! "${DESLB_RUN_WITHOUT_FSV}" = '1' ] && return 251; # Run /Package:bootstrap/MakeCPIO without FSV
 	}
 
 	return 0;
@@ -37,7 +37,7 @@ CheckPrerequisites_Core(){
 CheckPrerequisites_Bootstrap(){
 
 	[ ! -e "${BOOTSTRAP_DIR}/desl_bootstrap" ] && {
-		RunDESLBuilder ${ARGS_RAW_STRING} /Package:bootstrap /M:/Build || return ${?};
+		[ ! "${DESLB_RUN_WITHOUT_FSV}" = '1' ] && return 252; # Run /Package:bootstrap without FSV
 	}
 
 	return 0;

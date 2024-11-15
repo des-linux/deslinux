@@ -7,7 +7,7 @@
 
 # Helper functions can call from DESLBScript.sh
 
-export ARGS_MAKE_INSTALL="DESTDIR=${DLP_INSTALL_DIR} prefix=/ PREFIX=/"
+export ARGS_MAKE_INSTALL="DESTDIR=${DLP_INSTALL_DIR} prefix='' PREFIX=''"
 export ARGS_CONFIGURE="--build=${BUILDER_TARGET} --host=${DESL_TARGET} --prefix=/usr";
 
 ToolchainDB(){
@@ -133,12 +133,12 @@ DSH_MoveFiles(){ # src, dst, name match
 	local D="${2}";
 	local M="${3}";
 	local P;
+
 	for x in `find "${S}" ${M:+ -name "${M}"}`; do
 		[ -d "${x}" ] && continue;
 
 		P="${x#${S}}";
 		mkdir -p "${D}/${P%/*}" || return ${?};
-		error "${D}/${P}"
 		mv "${x}" "${D}/${P}" || return ${?};
 	done
 	return 0;

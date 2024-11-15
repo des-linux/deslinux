@@ -92,6 +92,7 @@ BuilderDownload(){
 
 	case "${PKG_ARC_URL}" in
 		http://* | https://* )
+			vinfo "Downloading ${PKG_ARC_URL}"
 			RunCommand wget --no-check-certificate -O "${PKG_ARC_DL}" "${PKG_ARC_URL}" || {
 				error 'Failed to download package file'
 				return 1;
@@ -115,7 +116,7 @@ BuilderDownload(){
 
 		[ "${Package_Source_SHA256}" = '?' ] && {
 			error " SHA256: ${PKG_ARC_DL_SHA256}"
-			sleep 1
+			sleep 3
 			Package_Source_SHA256="${PKG_ARC_DL_SHA256}";
 		}
 

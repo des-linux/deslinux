@@ -25,10 +25,14 @@ EBSRunDESLBScript(){ # mode
 
 	# Mount tmp, toolchain usr / tools directory
 	mount -t tmpfs tmp://DESLBuilder/ExecBuildScript/session /tmp
-	mount -o bind "${CURRENT_TOOLCHAIN_USR_DIR}" "${TOOLCHAIN_USR_DIR}" || return ${?};
-	mount -o bind "${CURRENT_TOOLCHAIN_TOOLS_DIR}" "${TOOLCHAIN_TOOLS_DIR}" || return ${?};
 
+	# Exclude: bootstrap or other special mode
+	[ ! "${TOOLCHAIN_USR_DIR}" = "${TOOLCHAIN_DIR}" ] && {
+		mount -o bind "${CURRENT_TOOLCHAIN_USR_DIR}" "${TOOLCHAIN_USR_DIR}" || return ${?};
+		mount -o bind "${CURRENT_TOOLCHAIN_TOOLS_DIR}" "${TOOLCHAIN_TOOLS_DIR}" || return ${?};
+	}
 
+	# Load package
 	PKG_FILE="${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def";
 	PackageLoad "${DESL_BUILD_PACKAGE}" "${PKG_FILE}" || return ${?};
 
@@ -124,6 +128,7 @@ EBSPrepareBuildDirectory(){ # build_dir, shared_dir
 
 	export SHARED_SOURCE_DIR='-';
 	export IMPORT_BUILD_DIR='-';
+	export IMPORT_PACKAGE_DIR='-';
 	[ ! "${Package_ImportCoreInfo:--}" = '-' ] && {
 		vinfo 'This package imports CoreInfo'
 		DSH_GetSharedDirectory "${Package_ImportCoreInfo}";
@@ -131,6 +136,7 @@ EBSPrepareBuildDirectory(){ # build_dir, shared_dir
 		R_DIR="${SHARED_SOURCE_DIR}";
 
 		IMPORT_BUILD_DIR="${BUILD_DIR}/${GSD_Package_Source_RootDir}";
+		IMPORT_PACKAGE_DIR="${PACKAGES_DIR}/${Package_ImportCoreInfo}";
 	}
 
 	[ "${DESLB_SUPPORT_NATIVE_ISOLATION:-0}" = '1' ] && {
@@ -156,10 +162,15 @@ MakeDLP(){ # ID, DLP Root path
 	local L_PKGID_FULL="${1:-${Package_Category}/${Package_ID}}";
 	local L_DLP_MAKE_ROOT_DIR="${2:-${DLP_INSTALL_DIR}}";
 	local L_DESL_ARCH="${DESL_ARCH}";
+	local L_NO_DEV=0;
 
 	case "${Package_Category}" in
+		bootstrap )
+			L_NO_DEV=1;
+			;;
 		toolchain-base | toolchain )
 			L_DESL_ARCH="${BUILDER_ARCH}";
+			L_NO_DEV=1;
 			;;
 	esac
 
@@ -215,7 +226,7 @@ MakeDLP(){ # ID, DLP Root path
 		"${DESL_TARGET}-strip" --strip-unneeded "${x}" > /dev/null 2>&1
 	done
 
-	{ # dev
+	[ ! "${L_NO_DEV}" = '1' ] && { # dev
 		local M=0;
 		local x p;
 		mkdir -p "${L_TEMP_ROOT}/lib"
@@ -230,18 +241,14 @@ MakeDLP(){ # ID, DLP Root path
 			M=1;
 		}
 
-		for x in `find "${L_DLP_MAKE_ROOT_DIR}" -name "*.a"`; do
-			p="${L_TEMP_ROOT}/${x#${L_DLP_MAKE_ROOT_DIR}}";
-			mkdir -p "${p%/*}" || return ${?};
-			mv "${x}" "${p}" || return ${?};
-			M=1;
-		done
+		DSH_MoveFiles "${L_DLP_MAKE_ROOT_DIR}" "${L_TEMP_ROOT}" "*.a" || return ${?};
+		DSH_MoveFiles "${L_DLP_MAKE_ROOT_DIR}" "${L_TEMP_ROOT}" "*.o" || return ${?};
 
 		# remove share/ if empty
 		rmdir "${L_TEMP_ROOT}/include/" 2>/dev/null
 		rmdir "${L_TEMP_ROOT}/lib/" 2>/dev/null
 
-		[ "${M}" = '1' ] && {
+		CheckEmptyDir "${L_TEMP_ROOT}" || {
 			RunDLPI /Create /Dir:"${L_TEMP_ROOT}" \
 				/PackageDef:"${PACKAGES_DIR}/${DESL_BUILD_PACKAGE}/DESLPackage.def" \
 				/Platform:${L_DESL_ARCH} \
@@ -307,5 +314,16 @@ vinfoex(){
 	:
 }
 
+main(){
+	EBSRunDESLBScript "${@}";
+	local R=${?};
 
-EBSRunDESLBScript "${@}";
+	case "${R}" in
+		# 250-255: DESLBuilder reserved these returns
+		25? ) R=1;;
+	esac
+
+	return ${R};
+}
+
+main "${@}";

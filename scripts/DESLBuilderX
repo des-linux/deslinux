@@ -3,6 +3,7 @@
 # Always run as vroot with cleaned environemnt variable (But not in DESLBWorld)
 
 DESLB_Main(){
+
 	[ "${DESLB_STARTUP_PATH}" = '' ] && {
 		export DESLB_STARTUP_PATH="${PATH}";
 	}
@@ -45,17 +46,8 @@ DESLB_Main(){
 
 	# Bootstrap/MakeCPIO,bintuils,gcc -> Use native system tools
 	[ "${DESLB_RUN_WITHOUT_FSV:-0}:${PACKAGE_ROOT_CATEGORY}" = '0:bootstrap' ] && {
-		case "${DESL_BUILD_PACKAGE:10}" in
-			MakeCPIO |\
-			make |\
-			binutils |\
-			gmp-1st |\
-			mpfr-1st |\
-			mpc-1st |\
-			gcc |\
-			libgcc )
-				return 251;;
-		esac
+		export DESLB_FSV_ARGS="${ARGS_RAW_STRING}";
+		return 250; # Restart in current args without FSV
 	}
 
 	# Enable verbose output (To reduce 'if')
@@ -263,6 +255,8 @@ ExportDirsPath(){
 	export W_DES_TARGET="i686-desl-mingw32";
 	export W_BOOTSTRAP_DIR="${BOOTSTRAP_ROOT_PREFIX}-${BOOTSTRAP_ARCH}/win-x86";
 
+	# export CCACHE_DIR="${BUILD_DIR}/ccache.tmp";
+
 	return 0;
 }
 
@@ -321,6 +315,8 @@ SetupToolchainSharedDir(){
 		RunScript "${SCRIPTS_DIR}/dlpi" /Initialize /Root:${TOOLCHAIN_TOOLS_CORE_DIR} /Platform:${BUILDER_ARCH} ${System} || return ${?};
 	}
 
+	mkdir -p "${TOOLCHAIN_USR_DIR}" || return ${?};
+	mkdir -p "${TOOLCHAIN_TOOLS_DIR}" || return ${?};
 	mkdir -p "${TOOLCHAIN_LOCAL_DIR}" || return ${?};
 
 	[ ! "${INTERNAL_NO_LINK_USR_DIR:-0}" = '1' ] && {
@@ -331,6 +327,8 @@ SetupToolchainSharedDir(){
 			}
 		}
 	}
+
+	# mkdir -p "${CCACHE_DIR}"
 
 	return 0;
 }
@@ -467,12 +465,21 @@ CheckPrerequisites(){
 		local R=${?};
 
 		case "${R}" in
-			251 ) return 251;; # 251: require to disable FSV
+			250 | 251 ) return ${R};; # 251: require to disable FSV
 		esac
 
 		error "Failed to solve prerequisites"
 		return ${R};
 	}
+
+	case "${DESLB_RUN_WITHOUT_FSV:-0}:${PACKAGE_ROOT_CATEGORY}" in
+		1:bootstrap );;
+		1:* )
+			error "Only bootstrap allowed without FSV: $DESL_BUILD_PACKAGE"
+			return 1;;
+	esac
+
+	return 0;
 }
 
 RunMode(){
@@ -592,7 +599,14 @@ RunMode(){
 
 		'Shell' )
 			[ ! "${ARGS_OPT_LONG_DisableFSV}" = '' ] && {
-				[ "${DESLB_RUN_WITHOUT_FSV:-0}" = '0' ] && return 251;
+				[ "${DESLB_RUN_WITHOUT_FSV:-0}" = '0' ] && return 250;
+			} || {
+				# Setup dlpi env
+				ln -s "${SCRIPTS_DIR}/dlpi" /bin/dlpi
+				ln -s "${SCRIPTS_DIR}/dlpm" /bin/dlpm
+				mount -t tmpfs usr://DESLBuilder/Shell /usr
+				RunDLPI /Initialize /Root:/usr /Platform:${BUILDER_ARCH}
+				DLP_DIR="${DLP_BUILDER_DIR}";
 			}
 			infoex 'Entering DESLBuilder shell'
 			cd "${ROOT_DIR}"

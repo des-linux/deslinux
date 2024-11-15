@@ -31,15 +31,46 @@ DESLBuilder(){
 	# 2nd: [Fork, Return] Run here in DBSE shell, real user
 	#	if return code is 251, Re-run without FSV
 	[ "${DESLB_ISOLATED_ENV:-0}" = '0' ] && {
+		export DESLB_REQUEST_WITHOUT_FSV=0;
 		RunInUnshare "${@}";
 		local R=${?};
-		case "${R}" in
-			251 )
-				export DESLB_REQUEST_WITHOUT_FSV=1;
-				RunInUnshare "${@}"
-				R=${?};
-			;;
-		esac
+
+		while true; do
+			DESLB_REQUEST_WITHOUT_FSV=0;
+			case "${R}" in
+				250 ) # Restart without FSV (= /Package:bootstrap*)
+					DESLB_REQUEST_WITHOUT_FSV=1;
+					RunInUnshare "${@}"
+					R=${?};
+					continue;;
+
+				251 ) # Run /Package:bootstrap/MakeCPIO without FSV
+					DESLB_REQUEST_WITHOUT_FSV=1;
+					RunInUnshare "${@}" /Package:bootstrap/MakeCPIO /M:/Build && {
+						R=255;
+					} || {
+						R=${?};
+					}
+					continue;;
+
+				252 ) # Run /Package:bootstrap without FSV
+					DESLB_REQUEST_WITHOUT_FSV=1;
+					RunInUnshare "${@}" /Package:bootstrap /M:/Build && {
+						R=255;
+					} || {
+						R=${?};
+					}
+					continue;;
+
+				255 ) # Restart with FSV
+					DESLB_REQUEST_WITHOUT_FSV=0;
+					RunInUnshare "${@}"
+					R=${?};
+					continue;
+
+			esac
+			return ${R};
+		done
 		return ${R};
 	}
 
@@ -155,8 +186,18 @@ ExecWithoutFSV(){
 		return 1;
 	}
 
+	mkdir -p /mnt || {
+		error "Failed to create '/mnt' directory."
+		return 1;
+	}
+
 	mount -t tmpfs "tmp://DESLBuilder/FSV" '/tmp' || {
 		error 'Failed to mount virtualized tmpfs in /tmp directory.'
+		return ${1};
+	}
+
+	mount -t tmpfs "mnt://DESLBuilder/FSV" '/mnt' || {
+		error 'Failed to mount virtualized tmpfs in /mnt directory.'
 		return ${1};
 	}
 

@@ -26,15 +26,19 @@ SolveDepends_BuildOnly(){ # Build:Y, Install:N, Auto-dev:N, ForBuilder:N
 
 SolveDepends_BuildTools(){ # Build:Y, Install:Y, Auto-dev:N, ForBuilder:Y
 	SolveDepends_DLP 'BuildDepends_BuildTools' 1 1 0 1 || return ${?};
+	SolveDepends_DLP 'RuntimeDepends' 1 1 0 1 || return ${?};
 	return 0;
 }
 
 SolveDepends_Library(){ # Build:Y, Install:N, Auto-dev:Y, ForBuilder:N
-	SolveDepends_DLP 'BuildDepends_Library' 1 1 1 0 || return ${?};
-	# SolveDepends_DLP 'BuildDepends_Library' 1 1 0 0 || return ${?};
+	SolveDepends_DLP 'BuildDepends_Library' 1 0 0 0 || return ${?};
+	SolveDepends_DLP 'BuildDepends_Library' 0 1 1 0 || return ${?};
 
 	SolveDepends_DLP 'Depends' 1 1 1 0 || return ${?};
 	SolveDepends_DLP 'Depends' 1 1 0 0 || return ${?};
+
+	SolveDepends_DLP 'BuildDenepds_Toolchain' 1 1 0 0 || return ${?};
+	SolveDepends_DLP 'BuildDenepds_Toolchain' 0 1 1 0 || return ${?};
 	return 0;
 }
 
