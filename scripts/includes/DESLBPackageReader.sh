@@ -80,6 +80,10 @@ PackageLoad(){ # PackageID, PackageDef, [Prefix]
 		done
 		eval ${VAL_PREFIX:+${VAL_PREFIX}_}Package_Version="${cic_Package_Version}";
 		eval ${VAL_PREFIX:+${VAL_PREFIX}_}Package_ID_Suffix="${cic_Package_Version}-${local_Package_Revision}";
+
+		[ "${local_PACKAGE_ROOTDIR_GENERATED:-0}" = '1' ] && {
+			Package_Source_RootDir="${Package_Source_RootDir}-${Package_Version}";
+		}
 	}
 
 	return 0;
@@ -121,6 +125,7 @@ PackageRead(){ # PackageID, PackageDef
 
 	# Generate if not defined
 	[ "${Package_Source_RootDir}" = '' ] && {
+		echo 'PACKAGE_ROOTDIR_GENERATED=1'
 		Package_Source_RootDir="${Package_Source_FileName:-${PACKAGE_ID//\//_}}";
 	}
 

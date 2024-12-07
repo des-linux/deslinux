@@ -7,7 +7,7 @@
 
 # Helper functions can call from DESLBScript.sh
 
-export ARGS_MAKE_INSTALL="DESTDIR=${DLP_INSTALL_DIR} prefix='' PREFIX=''"
+export ARGS_MAKE_INSTALL="DESTDIR=${DLP_INSTALL_DIR} prefix= PREFIX="
 export ARGS_CONFIGURE="--build=${BUILDER_TARGET} --host=${DESL_TARGET} --prefix=/usr";
 
 ToolchainDB(){
@@ -89,8 +89,13 @@ DSH_makeInstallEx(){
 }
 
 DSH_configure(){
+	local S='';
+	[ "${DESLB_STATIC:-0}" = '1' ] && {
+		S='--disable-shared --enable-static';
+	}
+
 	[ "${DESLB_SUPPORT_NATIVE_ISOLATION:-0}" = '1' ] && {
-		${SHARED_SOURCE_DIR}/configure ${ARGS_CONFIGURE} "${@}" || return ${?};
+		${SHARED_SOURCE_DIR}/configure ${ARGS_CONFIGURE} ${S} "${@}" || return ${?};
 		return 0;
 	}
 

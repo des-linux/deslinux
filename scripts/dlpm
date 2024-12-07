@@ -66,6 +66,7 @@ Main(){
 			return ${?};;
 
 		Reinstall )
+			DLPM_REINSTALL=1 EnterSessionEx DLPMInstall;
 			return ${?};;
 
 		List)
@@ -147,6 +148,11 @@ DLPMInstall(){
 	ResolveFileArgs ${ARGS_FILE_LIST} || return ${?};
 	ResolveDepends || return ${?};
 
+	[ "${DLPM_LIST_FILES}" = '' ] && {
+		DLPMUsage
+		return 1;
+	}
+
 	[ "${DLPM_DRY_RUN:-0}" = '1' ] && {
 		[ "${ARGS_OPT_LONG_Quiet:-0}" = '0' ] && echo "${DLPM_LIST_FILES}"
 		return 0;
@@ -179,6 +185,14 @@ DLPMInstall(){
 
 	done
 
+	[ "${DLPM_REINSTALL:-0}" = '1' ] && {
+		info 'Removing packages...'
+		for x in ${INSTALL_FILES}; do
+			info " ${x}..."
+			dlpi /Remove /Root:"${ROOT_DIR}" /File:"${x}" /Force || return ${?};
+		done
+	}
+
 	info 'Installing packages...'
 	for x in ${INSTALL_FILES}; do
 		info " ${x}..."
@@ -188,11 +202,26 @@ DLPMInstall(){
 	return 0;
 }
 
+DLPMRemove(){
+	local x;
+	local LF=$'\n';
+
+	InitResolveList;
+
+	info 'Removing packages...'
+	for x in ${ARGS_FILE_LIST}; do
+		info " ${x}..."
+		dlpi /Remove /Root:"${ROOT_DIR}" /ID:"${x}" /Force || return ${?};
+	done
+
+	return 0;
+}
+
 DLPMRepository(){
 	ConfigLoad "${REP_LIST}" DLPMReps > /dev/null || return ${?};
 
 	case "${ARGS_OPT_LONG_Add:+/A}${ARGS_OPT_LONG_Remove:+/R}${ARGS_OPT_LONG_List:+/L}" in
-		/L | '' )
+		/L )
 			ConfigListWithValue 'DLPMReps::Repositories'
 			return 0;
 		;;
@@ -324,12 +353,9 @@ AddDependsList(){ # ID to add
 AddDLPFileList(){
 	local x="${1}";
 	local LF=$'\n';
-warning "DLPM: x1: ${x}"
 	x=`readlink -f "${x}" 2>/dev/null || echo "${x}"`;
-warning "DLPM: x2: ${x}"
 	[ ! -e "${x}" ] && {
 		error "File '${x}' is not found."
-sleep 30
 		return 1;
 	}
 
@@ -659,6 +685,55 @@ CheckEnv(){
 	}
 	IFS=${OFS};
 	return 0;
+}
+
+DLPMUsage(){
+cat << EOF
+
+dlpm: DES Linux Package Manager
+	(C)2024 Dark Embedded Systems
+	http://e.xprj.net/
+
+Basic options:
+	dlpm /Update		Sync repositories
+	dlpm /Repository	Manage repositories
+	dlpm /Install		Install DLP
+	dlpm /Remove		Remove DLP
+	dlpm /Reinstall		Remove and install DLP
+	dlpm /FindPackage	Find DLP
+	dlpm /List		Output specified list
+	dlpm /Search		Search ?
+	dlpm /MakeDB		Make DB file for local repository
+
+Options in each modes:
+
+	dlpm /Update
+
+	dlpm /Repository /List	Print repositories settings
+
+	dlpm /Repository
+		/Add		Add new repository
+		/Remove		Remove repository
+		/Name		Repository name to process
+		[/URL]		Repository URL to add
+		[/Force]	Ignore 'already' errorW
+
+	dlpm /Install
+		<DLP ID> or <DLP path, URL>...
+				DLP(s) to install. Multiple allowed
+		[/IgnoreCapacity]	Do not check capacity of storage
+
+	dlpm /Remove
+		<DLP ID>...
+				DLP(s) to remove. Multiple allowed
+
+	dlpm /Reinstall
+		<DLP ID> or <DLP path, URL>...
+				DLP(s) to reinstall. Multiple allowed
+
+
+EOF
+	return 1;
 }
 
 Main "${@}"

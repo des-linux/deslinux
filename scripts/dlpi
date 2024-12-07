@@ -188,6 +188,13 @@ DLPIInstall(){ # /Install /File:<DLP Path> [/Root:<DLP Root>]
 }
 
 DLPIRemove(){ # /Remove /ID:<DLP ID> [/Root:<DLP Root>] [/Force]
+	[ "${ARGS_OPT_LONG_ID:-0}:${ARGS_OPT_LONG_File+1}" = '0:1' ] && {
+		DLPIGetIDFromDLP || {
+			error "Faled to get DLP ID from '${ARGS_OPT_LONG_File}'"
+			return 1;
+		}
+	}
+
 	NOCLEANUP=1 DLPICleanup
 
 	[ ! "${ARGS_OPT_LONG_ID+1}" = '1' ] && {
@@ -341,7 +348,7 @@ DLPIList(){ # /List /Installed or /File:<DLP>
 		return ${?};
 	}
 
-	DLPI_List_Installed
+	DLPIList_Installed
 	return ${?};
 }
 
@@ -550,7 +557,93 @@ CheckEnv(){
 }
 
 DLPIUsage(){
-	error USAGEUASGE!
+cat << EOF
+
+dlpi: DES Linux Package Installer
+	(C)2024 Dark Embedded Systems
+	http://e.xprj.net/
+
+Basic options:
+	dlpi /Install		Install one DLP file
+	dlpi /Remove		Remove  one DLP file
+	dlpi /Check		Check specified DLP is installed or not
+	dlpi /List		Output specified list
+	dlpi /Extract		Extract contents of DLP
+	dlpi /Initialize	Prepare directory for using with dlpi
+	dlpi /Cleanup		Cleanup previous incomplete processing
+	dlpi /Create		Create new DLP file
+
+Options in each modes:
+
+	dlpi /Install
+		/File:<DLP Path>	DLP to install (allowed only 1 DLP)
+		[/Root:<DLP Root>]	Change install root [Default: /usr]
+		[/SkipVerify]		Skip check for installed files
+		[/Force]		Ignore 'Already installed' error
+		[/IgnorePlatform]	Do not check DLP target platform
+		[/IgnoreSystem]		Do not check DLP target system
+		[/IgnoreDepends]	Ignore missing dependencies
+		[/IgnoreConflict]	Overwrite existing files
+		[/IgnoreCapacity]	Do not check capacity of storage
+
+	dlpi /Remove
+		[/ID:<DLP ID>]		DLP ID to remove
+		[/File:<DLP Path>]	DLP file to remove
+		[/Root:<DLP Root>]	Change install root [/usr]
+		[/Force]		Ignore 'Already removed' error
+
+	dlpi /Check
+		/Installed		Check mode: Installed or not
+					Return if installed: 0, not: 1
+		[/ID:<DLP ID>]		DLP ID to check
+		[/File:<DLP Path>]	DLP file to check
+
+	dlpi /List
+		[/Installed]		List all of installed DLP
+		[/File:<DLP path>]	List contents of soecified DLP
+
+	dlpi /Extract
+		/File:<DLP Path>	DLP file to extract
+		[/Dir:<Extract to>]	Change dir to extract [PWD]
+		[/Verbose, /v]		Print name of extracting files
+		[/MakeDir, /d]		Make target directory
+
+	dlpi /Initialize
+		/Root:<DLP Root>	Directory
+		/Platform:<Arch>
+		[/System:<SystemName>]
+		[/MakeDir, /d]		Make target directory
+
+	dlpi /Cleanup			(No options)
+
+	dlpi /Create
+		/Dir:<Root>		Root dir to capture files
+		/PackageDef:<DESLPackage.def>
+					Path of DESLPackage.def
+		/Platform:<Arch>	Target platform
+		/ID:<ID>		New DLP ID
+		/SaveTo:<dlp>		DLP path to save created
+		[/System:<SystemName>]	Target system [DESLinux]
+		[/Archive:<type>]	Archive method [dla]
+		[/Compress:<type>]	Compress method [gzip]
+		[Type:<arc.comp>]	Alternative notation
+					 of /Archive, /Compress [dla.gz]
+
+	* Supported archive methods:
+		dla *	Default archive method
+		tar	DO NOT USE: Only for compabilitry of DLPI v0.x
+
+	* Supported compress methods:
+		gzip *	Default compress method
+		none	No compress. Suitable for already compressed
+		base64	Only suitable for special embedded devices
+
+
+* 'dlpi' is low-level DLP management command.
+* We recommended to use user-friendly 'dlpm' command instead of 'dlpi'.
+
+EOF
+	return 1;
 }
 
 Main "${@}"

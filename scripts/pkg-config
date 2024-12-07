@@ -1,0 +1,191 @@
+#!/bin/sh
+# pkgconfig: Minimum implementation of pkg-config
+#
+# DO NOT USE if you have alternative ways. (e.g. XXXX_CFLAGS, XXXX_LIBS options for configure)
+
+VERSION='1.9.0';
+
+main(){
+	local F_QUIET=1;
+	local F_ERROR=0;
+
+	local F_CFLAGS=0;
+	local F_LIBS=0;
+	local F_MODVER=0;
+
+	local LR=$'\n';
+	local ERRORLOG='';
+
+	local RSTR='';
+
+	local x k v;
+	for x in "${@}"; do
+		case "${x}" in
+			--*=* )
+				k="${x%=*}";
+				v="${x##*=}";
+				case "${k:2}" in
+					atleast-pkgconfig-version )
+						CompareVersion "${VERSION}" '>=' "${v}"
+						return ${?};
+					;;
+					* )
+						echo "Unsupported option: ${k}"
+						return 1;
+					;;
+				esac
+			;;
+
+			--* )
+				case "${x:2}" in
+					atleast-pkgconfig-version )
+						return 0;
+					;;
+
+					version ) echo "${VERSION}";;
+
+					cflags ) F_CFLAGS=1; F_QUIET=0;;
+					libs ) F_LIBS=1; F_QUIET=0;;
+					modversion ) F_MODVER=1; F_QUIET=0;;
+					* )
+						echo "Unsupported option: ${x}"
+						return 1;
+					;;
+				esac
+			;;
+		esac
+	done
+
+	for x in "${@}"; do
+		case "${x}" in
+			--*=* ) ;;
+			--* ) ;;
+
+			*\>=* )
+				CheckVersion ${x} && {
+					GetPC ${x} || {
+						F_ERROR=1;
+					}
+				} || {
+					F_ERROR=1;
+					ERRORLOG="${ERRORLOG}${LR}Package dependency requirement '${x}' could not be satisfied."
+				}
+			;;
+
+			* )
+				GetPC "${x}" || {
+					F_ERROR=1;
+					ERRORLOG="${ERRORLOG}${LR}Package ${x} was not found in the DESL pkg-config dir."
+				}
+			;;
+		esac
+	done
+
+	[ ! "${F_ERROR}" = '0' ] && [ "${F_QUIET}" = "0" ] && {
+		echo "${ERRORLOG:1}"
+		return ${F_ERROR};
+	}
+
+	[ ! "${RSTR:1}" = '' ] && echo "${RSTR:1}";
+
+	return 0;
+}
+
+CheckVersion(){ # Name mode V1
+	local R;
+
+	Version='65535';
+	LoadPC "${1}" || {
+		return 1;
+	}
+
+	CompareVersion "${Version}" "${2}" "${3}" || return ${R};
+
+	return 0;
+}
+
+CompareVersion(){ #V1 mode V2
+
+	local V1="${1// /}";
+	local V2="${3// /}";
+	local M="${2}";
+
+	local VS=`CompareVersionInternal "${V1}" "${V2}"`;
+
+	case "${M}" in
+
+		'=' | '==' )
+			[ "${V1}" == "${V2}" ] && return 0;
+			return 1;
+		;;
+
+		'>')
+			[ "${V1}" == "${V2}" ] && return 1;
+			[ "${V1}" == "${VS}" ] && return 0;
+			return 1;
+		;;
+		'>=')
+			[ "${V1}" == "${V2}" ] && return 0;
+			[ "${V1}" == "${VS}" ] && return 0;
+			return 1;
+		;;
+		'<')
+			[ "${V1}" == "${V2}" ] && return 1;
+			[ ! "${V1}" == "${VS}" ] && return 0;
+			return 1;
+		;;
+		'<=')
+			[ "${V1}" == "${V2}" ] && return 0;
+			[ ! "${V1}" == "${VS}" ] && return 0;
+			return 1;
+		;;
+
+		*)
+			echo "CompareVersion: Unsupported compare mode: ${M}"
+			return 1;
+		;;
+	esac
+
+	return 1;
+}
+
+CompareVersionInternal(){ # V1 V2
+cat << EOF | sort -V -r | head -n1
+${1}
+${2}
+EOF
+}
+
+GetPC(){ # Name # Ignore extra args
+	LoadPC "${1}" || {
+		return 1;
+	}
+
+	[ "${F_MODVER}" = '1' ] && RSTR="${RSTR}${LR}${Version// /}";
+
+	[ "${F_CFLAGS}" = '1' ] && RSTR="${RSTR} ${Cflags//\/usr/${TOOLCHAIN_USR_DIR}}";
+	[ "${F_LIBS}" = '1' ] && RSTR="${RSTR} ${Libs//\/usr/${TOOLCHAIN_USR_DIR}}";
+	return 0;
+}
+
+LoadPC(){ # Name
+	local x k;
+	local F="${TOOLCHAIN_USR_DIR}/lib/pkgconfig/${1}.pc"
+	[ ! -e "${F}" ] && return 1;
+
+	local IFS=$'\n\r';
+	for x in `cat "${F}"`; do
+		case "${x}" in
+			\#* ) ;;
+			*=* ) eval ${x};;
+			*:* )
+				k="${x%%:*}";
+				eval ${k//./_}=\"${x#*:}\"
+				;;
+			* ) echo $x;
+		esac
+	done
+	return 0;
+}
+
+main "${@}"
